@@ -1,26 +1,28 @@
 # create_db_mysql.py
 
-import MySQLdb
+import pymysql
 
 def create_database_mysql():
     """
-    Crea le tabelle nel database MySQL su Railway,
-    replicando la logica presente in create_db.py (SQLite).
+    Crea le tabelle nel database MySQL su Railway replicando 
+    la struttura e i dati di create_db.py (SQLite).
+    Usa il driver pymysql, che non richiede dipendenze di sistema
+    come 'pkg-config' o librerie di MySQL.
     """
-    # Parametri di connessione MySQL (Public host e port da Railway)
-    host = "junction.proxy.rlwy.net"       # Esempio di public host
-    port = 14718                           # Esempio di public port
-    user = "root"                          # Il tuo user (es. "root")
-    password = "GoHrUNytXgoikyAk..."       # La tua password
-    db_name = "railway"                    # Nome database, di solito "railway"
+    # Parametri di connessione MySQL (public host e port da Railway)
+    host = "junction.proxy.rlwy.net"  # Esempio di public host
+    port = 14718                      # Esempio di public port
+    user = "root"                     # Il tuo username
+    password = "GoHrUNytXgoikyAk..."  # La password
+    db_name = "railway"
 
     try:
-        # Connessione a MySQL
-        conn = MySQLdb.connect(
+        # Connessione a MySQL con pymysql
+        conn = pymysql.connect(
             host=host,
             user=user,
-            passwd=password,
-            db=db_name,
+            password=password,
+            database=db_name,
             port=port
         )
         c = conn.cursor()
@@ -28,7 +30,6 @@ def create_database_mysql():
         # ------------------------------------------------
         # 1) Tabelle di base
         # ------------------------------------------------
-        # settori
         c.execute('''
             CREATE TABLE IF NOT EXISTS settori (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -36,7 +37,6 @@ def create_database_mysql():
             )
         ''')
 
-        # project_managers
         c.execute('''
             CREATE TABLE IF NOT EXISTS project_managers (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -44,7 +44,6 @@ def create_database_mysql():
             )
         ''')
 
-        # recruiters
         c.execute('''
             CREATE TABLE IF NOT EXISTS recruiters (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -86,51 +85,49 @@ def create_database_mysql():
         ''')
 
         # ------------------------------------------------
-        # 4) Popola tabelle con dati iniziali se vuote
+        # 4) Popola tabelle con dati iniziali
         # ------------------------------------------------
         settori_iniziali = ["Retail", "Estetico", "Tecnologico", "Finanziario", "Altro"]
         project_managers_iniziali = ["Paolo Patelli"]
         recruiters_iniziali = ["Paolo Carnevale", "Juan Sebastian", "Francesco Picaro", "Daniele Martignano"]
 
-        # 4a) Inserisci settori
+        # Inserisci settori
         for settore in settori_iniziali:
             try:
                 c.execute("INSERT INTO settori (nome) VALUES (%s)", (settore,))
-            except MySQLdb.IntegrityError:
+            except pymysql.IntegrityError:
                 pass
 
-        # 4b) Inserisci project_managers
+        # Inserisci project_managers
         for pm in project_managers_iniziali:
             try:
                 c.execute("INSERT INTO project_managers (nome) VALUES (%s)", (pm,))
-            except MySQLdb.IntegrityError:
+            except pymysql.IntegrityError:
                 pass
 
-        # 4c) Inserisci recruiters
+        # Inserisci recruiters
         for recruiter in recruiters_iniziali:
             try:
                 c.execute("INSERT INTO recruiters (nome) VALUES (%s)", (recruiter,))
-            except MySQLdb.IntegrityError:
+            except pymysql.IntegrityError:
                 pass
 
-        # 4d) Inserisci record di default in recruiter_capacity (capacity=5)
+        # Imposta capacity=5 per tutti i recruiters
         c.execute("SELECT id FROM recruiters")
         all_recs = c.fetchall()
         for (rec_id,) in all_recs:
             try:
-                c.execute(
-                    "INSERT INTO recruiter_capacity (recruiter_id, capacity_max) VALUES (%s, %s)",
-                    (rec_id, 5)
-                )
-            except MySQLdb.IntegrityError:
+                c.execute("INSERT INTO recruiter_capacity (recruiter_id, capacity_max) VALUES (%s, 5)", (rec_id,))
+            except pymysql.IntegrityError:
                 pass
 
         conn.commit()
         conn.close()
-        print("Database creato/aggiornato con successo su MySQL (Railway), SENZA data_chiusura_prevista e tempo_previsto.")
+        print("Database creato/aggiornato con successo su MySQL (Railway) con pymysql!")
 
-    except MySQLdb.Error as e:
+    except pymysql.Error as e:
         print(f"Errore di connessione MySQL: {e}")
+
 
 if __name__ == "__main__":
     create_database_mysql()
