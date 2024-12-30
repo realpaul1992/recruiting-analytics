@@ -20,7 +20,7 @@ markdown-it-py==3.0.0
 MarkupSafe==3.0.2
 matplotlib==3.10.0
 mdurl==0.1.2
-mysqlclient==2.2.6
+pymysql
 narwhals==1.18.4
 numpy==2.2.0
 packaging==24.2
