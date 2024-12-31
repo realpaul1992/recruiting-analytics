@@ -10,19 +10,19 @@ import os
 import matplotlib.pyplot as plt  # <--- Import Matplotlib
 
 #######################################
-# FUNZIONI DI ACCESSO AL DB (MySQL + pymysql)
+# FUNZIONI DI ACCESSO AL DB (MySQL)
 #######################################
 def get_connection():
     """
     Ritorna una connessione MySQL usando pymysql.
-    Sostituisci i valori con i tuoi da Railway:
+    Sostituisci i parametri con i tuoi valori Railway.
     """
     return pymysql.connect(
-        host="junction.proxy.rlwy.net",  # Public host su Railway
+        host="junction.proxy.rlwy.net",  # Public host
         port=14718,                      # Porta pubblica
-        user="root",                     # Username (Railway)
-        password="GoHrUNytXgoikyAkbwYQpYLnfuQVQdBM",  # Tua password
-        database="railway"              # Nome DB, di solito 'railway'
+        user="root",                     # Username
+        password="GoHrUNytXgoikyAkbwYQpYLnfuQVQdBM",  # Password
+        database="railway"               # Nome DB
     )
 
 def carica_settori():
@@ -61,6 +61,7 @@ def inserisci_dati(cliente, settore_id, pm_id, rec_id, data_inizio):
     recensione_data = None
     tempo_previsto = None  # Gestito in "clienti.py"
 
+    # Inserimento
     query = """
         INSERT INTO progetti (
             cliente,
@@ -74,8 +75,7 @@ def inserisci_dati(cliente, settore_id, pm_id, rec_id, data_inizio):
             recensione_stelle,
             recensione_data,
             tempo_previsto
-        )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """
     c.execute(query, (
         cliente,
@@ -92,16 +92,15 @@ def inserisci_dati(cliente, settore_id, pm_id, rec_id, data_inizio):
     ))
     conn.commit()
     conn.close()
-
-    # Esegui il backup in locale? Non ha senso con MySQL.
+    # Backup su MySQL non è un semplice copia-file
     backup_database()
 
 def carica_dati_completo():
     """
-    Carica i progetti uniti a settori, pm, recruiters, includendo 'tempo_previsto'.
+    Carica i progetti uniti a settori, pm, recruiters, 
+    includendo la colonna 'tempo_previsto'.
     """
     conn = get_connection()
-    c = conn.cursor()
     query = """
         SELECT
             p.id,
@@ -121,16 +120,8 @@ def carica_dati_completo():
         JOIN project_managers pm ON p.project_manager_id = pm.id
         JOIN recruiters r ON p.sales_recruiter_id = r.id
     """
-    c.execute(query)
-    rows = c.fetchall()
+    df = pd.read_sql_query(query, conn)
     conn.close()
-
-    columns = [
-        'id','cliente','settore','project_manager','sales_recruiter',
-        'stato_progetto','data_inizio','data_fine','tempo_totale',
-        'recensione_stelle','recensione_data','tempo_previsto'
-    ]
-    df = pd.DataFrame(rows, columns=columns)
     return df
 
 #######################################
@@ -138,14 +129,15 @@ def carica_dati_completo():
 #######################################
 def backup_database(max_backups=5):
     """
-    Con MySQL, non puoi copiare un file come su SQLite.
-    Qui generiamo solo un messaggio d'errore o di info.
+    Con MySQL non possiamo semplicemente copiare un file .db come in SQLite.
+    Quindi qui ci limitiamo a mostrare un messaggio informativo.
     """
-    st.info("Backup su MySQL non implementato (nessun file database.db da copiare).")
+    st.info("Backup non implementato su MySQL (nessun file database.db da copiare).")
 
 def check_weekly_backup():
     """
-    Inutile in contesto MySQL su Streamlit Cloud.
+    In contesto MySQL su hosting, 
+    il backup periodico non è implementato in questo codice.
     """
     pass
 
@@ -160,14 +152,13 @@ def carica_recruiters_capacity():
     """
     conn = get_connection()
     c = conn.cursor()
-    query = '''
+    c.execute('''
         SELECT r.nome AS sales_recruiter,
                IFNULL(rc.capacity_max, 5) AS capacity
         FROM recruiters r
         LEFT JOIN recruiter_capacity rc ON r.id = rc.recruiter_id
         ORDER BY r.nome
-    '''
-    c.execute(query)
+    ''')
     rows = c.fetchall()
     conn.close()
     df_capacity = pd.DataFrame(rows, columns=['sales_recruiter', 'capacity'])
@@ -177,13 +168,87 @@ def carica_recruiters_capacity():
 # FUNZIONE PER CALCOLARE LEADERBOARD MENSILE
 #######################################
 def calcola_leaderboard_mensile(df, start_date, end_date):
-    ...
-    # Copi e incolli la stessa logica esistente. Lasciata invariata.
+    """
+    Filtra i progetti completati (stato_progetto='Completato')
+    con data_inizio compresa in [start_date, end_date].
+    
+    Calcola:
+      - completati = n. progetti completati nel periodo
+      - tempo_medio = tempo medio di chiusura
+      - bonus_totale = somma bonus (4 stelle=300, 5 stelle=500)
+      - punteggio = completati*10 + bonus_totale + max(0, 30 - tempo_medio)
+      - badge = 'Bronze' (>=5), 'Silver' (>=10), 'Gold' (>=20)
 
-# Rimane tutto invariato per le tab, mantenendo la logica
+    Ritorna un DataFrame con:
+      [sales_recruiter, completati, tempo_medio, bonus_totale, punteggio, badge].
+    """
+    df_temp = df.copy()
+    df_temp['data_inizio_dt'] = pd.to_datetime(df_temp['data_inizio'], errors='coerce')
+    df_temp['recensione_stelle'] = df_temp['recensione_stelle'].fillna(0).astype(int)
 
+    # bonus da recensioni
+    def bonus_stelle(stelle):
+        if stelle == 4:
+            return 300
+        elif stelle == 5:
+            return 500
+        return 0
+
+    df_temp['bonus'] = df_temp['recensione_stelle'].apply(bonus_stelle)
+
+    mask = (
+        (df_temp['stato_progetto'] == 'Completato') &
+        (df_temp['data_inizio_dt'] >= pd.Timestamp(start_date)) &
+        (df_temp['data_inizio_dt'] <= pd.Timestamp(end_date))
+    )
+    df_filtro = df_temp[mask].copy()
+
+    if df_filtro.empty:
+        return pd.DataFrame([], columns=[
+            'sales_recruiter','completati','tempo_medio','bonus_totale','punteggio','badge'
+        ])
+
+    group = df_filtro.groupby('sales_recruiter')
+    completati = group.size().reset_index(name='completati')
+    tempo_medio = group['tempo_totale'].mean().reset_index(name='tempo_medio')
+    bonus_sum = group['bonus'].sum().reset_index(name='bonus_totale')
+
+    leaderboard = (
+        completati
+        .merge(tempo_medio, on='sales_recruiter', how='left')
+        .merge(bonus_sum, on='sales_recruiter', how='left')
+    )
+
+    leaderboard['tempo_medio'] = leaderboard['tempo_medio'].fillna(0)
+    leaderboard['bonus_totale'] = leaderboard['bonus_totale'].fillna(0)
+
+    # punteggio
+    leaderboard['punteggio'] = (
+        leaderboard['completati'] * 10
+        + leaderboard['bonus_totale']
+        + leaderboard['tempo_medio'].apply(lambda x: max(0, 30 - x))
+    )
+
+    # badge
+    def assegna_badge(n):
+        if n >= 20:
+            return "Gold"
+        elif n >= 10:
+            return "Silver"
+        elif n >= 5:
+            return "Bronze"
+        return ""
+
+    leaderboard['badge'] = leaderboard['completati'].apply(assegna_badge)
+    leaderboard = leaderboard.sort_values('punteggio', ascending=False)
+    return leaderboard
+
+#######################################
+# CONFIG E LAYOUT
+#######################################
 STATI_PROGETTO = ["Completato", "In corso", "Bloccato"]
 
+# Caricamento dei dati delle tabelle
 settori_db = carica_settori()
 pm_db = carica_project_managers()
 rec_db = carica_recruiters()
@@ -197,10 +262,46 @@ scelta = st.sidebar.radio("Vai a", ["Inserisci Dati", "Dashboard", "Gestisci Opz
 #######################################
 if scelta == "Inserisci Dati":
     st.header("Inserimento Nuovo Progetto")
-    ...
-    # Mantieni identico, 
-    # data la logica di caricamento settori/pm/rec, 
-    # per poi chiamare inserisci_dati(...).
+    
+    with st.form("form_inserimento_progetto"):
+        cliente = st.text_input("Nome Cliente")
+        
+        # Settore
+        settori_nomi = [s[1] for s in settori_db]
+        settore_sel = st.selectbox("Settore Cliente", settori_nomi)
+        settore_id = next(s[0] for s in settori_db if s[1] == settore_sel)
+        
+        # Project Manager
+        pm_nomi = [p[1] for p in pm_db]
+        pm_sel = st.selectbox("Project Manager", pm_nomi)
+        pm_id = next(p[0] for p in pm_db if p[1] == pm_sel)
+        
+        # Recruiter
+        rec_nomi = [r[1] for r in rec_db]
+        rec_sel = st.selectbox("Sales Recruiter", rec_nomi)
+        rec_id = next(r[0] for r in rec_db if r[1] == rec_sel)
+        
+        data_inizio_str = st.text_input("Data di Inizio (GG/MM/AAAA)", value="", 
+                                        placeholder="Lascia vuoto se non disponibile")
+
+        submitted = st.form_submit_button("Inserisci Progetto")
+        if submitted:
+            if not cliente.strip():
+                st.error("Il campo 'Nome Cliente' è obbligatorio!")
+                st.stop()
+            
+            if data_inizio_str.strip():
+                try:
+                    di = datetime.strptime(data_inizio_str.strip(), '%d/%m/%Y')
+                    data_inizio_sql = di.strftime('%Y-%m-%d')
+                except ValueError:
+                    st.error("Formato Data Inizio non valido. Usa GG/MM/AAAA.")
+                    st.stop()
+            else:
+                data_inizio_sql = None
+            
+            inserisci_dati(cliente.strip(), settore_id, pm_id, rec_id, data_inizio_sql)
+            st.success("Progetto inserito con successo!")
 
 #######################################
 # 2. DASHBOARD
@@ -208,9 +309,30 @@ if scelta == "Inserisci Dati":
 elif scelta == "Dashboard":
     st.header("Dashboard di Controllo")
     df = carica_dati_completo()
-    ...
-    # Rimani identico nel layout e i calcoli (adesso punta a MySQL)
-    # Tieni tutto come nel codice che hai fornito.
+    
+    if df.empty:
+        st.info("Nessun progetto disponibile nel DB.")
+    else:
+        # Definisci le tab
+        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+            "Panoramica",
+            "Carico Proiettato / Previsione",
+            "Bonus e Premi",
+            "Backup",
+            "Altre Info",
+            "Classifica"
+        ])
+
+        #
+        # Resto del codice identico (Panoramica, Carico Proiettato, etc.)
+        # Basta copiare esattamente ciò che hai già fornito e che stava funzionando
+        #
+
+        with tab1:
+            ...
+            # etc.
+
+        # e così via per tab2, tab3, ...
 
 #######################################
 # 3. GESTISCI OPZIONI
