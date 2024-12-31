@@ -1,117 +1,62 @@
-# app.py
+# clienti.py
 
 import streamlit as st
 import pandas as pd
-import pymysql
-from datetime import datetime, timedelta
-import plotly.express as px
-import shutil
-import os
-import matplotlib.pyplot as plt  # <--- Import Matplotlib
+import pymysql  # <--- sostituisce sqlite3
+from datetime import datetime
 
-#######################################
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from utils import format_date_display, parse_date
+
+####################################
 # FUNZIONI DI ACCESSO AL DB (MySQL)
-#######################################
+####################################
 def get_connection():
-    """
-    Ritorna una connessione MySQL usando pymysql.
-    Sostituisci i parametri (host, port, user, password, database)
-    con quelli del tuo DB su Railway.
-    """
+    """Crea e restituisce una connessione al database MySQL."""
     return pymysql.connect(
-        host="junction.proxy.rlwy.net",
+        host="junction.proxy.rlwy.net",  # Parametri da Railway
         port=14718,
         user="root",
         password="GoHrUNytXgoikyAkbwYQpYLnfuQVQdBM",
         database="railway"
     )
 
-def carica_settori():
+def carica_settori_db():
     conn = get_connection()
     c = conn.cursor()
     c.execute("SELECT id, nome FROM settori ORDER BY nome ASC")
-    rows = c.fetchall()
+    settori = c.fetchall()
     conn.close()
-    return rows
+    return settori
 
-def carica_project_managers():
+def carica_project_managers_db():
     conn = get_connection()
     c = conn.cursor()
     c.execute("SELECT id, nome FROM project_managers ORDER BY nome ASC")
-    rows = c.fetchall()
+    pm = c.fetchall()
     conn.close()
-    return rows
+    return pm
 
-def carica_recruiters():
+def carica_recruiters_db():
     conn = get_connection()
     c = conn.cursor()
     c.execute("SELECT id, nome FROM recruiters ORDER BY nome ASC")
-    rows = c.fetchall()
+    rec = c.fetchall()
     conn.close()
-    return rows
+    return rec
 
-def inserisci_dati(cliente, settore_id, pm_id, rec_id, data_inizio):
-    """
-    Inserisce un nuovo progetto in MySQL.
-    """
-    conn = get_connection()
-    c = conn.cursor()
-
-    # Valori di default (come in SQLite)
-    stato_progetto = None
-    data_fine = None
-    tempo_totale = None
-    recensione_stelle = None
-    recensione_data = None
-    tempo_previsto = None  # gestito altrove
-
-    query = """
-        INSERT INTO progetti (
-            cliente,
-            settore_id,
-            project_manager_id,
-            sales_recruiter_id,
-            stato_progetto,
-            data_inizio,
-            data_fine,
-            tempo_totale,
-            recensione_stelle,
-            recensione_data,
-            tempo_previsto
-        )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-    """
-    c.execute(query, (
-        cliente,
-        settore_id,
-        pm_id,
-        rec_id,
-        stato_progetto,
-        data_inizio,
-        data_fine,
-        tempo_totale,
-        recensione_stelle,
-        recensione_data,
-        tempo_previsto
-    ))
-    conn.commit()
-    conn.close()
-    backup_database()
-
-def carica_dati_completo():
-    """
-    Carica i progetti uniti a settori, pm, recruiters, includendo 'tempo_previsto'.
-    (Stessa logica, ma query MySQL)
-    """
+def cerca_progetti(id_progetto=None, nome_cliente=None):
     conn = get_connection()
     c = conn.cursor()
     query = """
-        SELECT
+        SELECT 
             p.id,
             p.cliente,
-            s.nome AS settore,
-            pm.nome AS project_manager,
-            r.nome AS sales_recruiter,
+            p.settore_id,
+            p.project_manager_id,
+            p.sales_recruiter_id,
             p.stato_progetto,
             p.data_inizio,
             p.data_fine,
@@ -120,566 +65,363 @@ def carica_dati_completo():
             p.recensione_data,
             p.tempo_previsto
         FROM progetti p
-        JOIN settori s ON p.settore_id = s.id
-        JOIN project_managers pm ON p.project_manager_id = pm.id
-        JOIN recruiters r ON p.sales_recruiter_id = r.id
+        WHERE 1=1
     """
-    c.execute(query)
-    rows = c.fetchall()
+    params = []
+    if id_progetto:
+        query += " AND p.id = %s"
+        params.append(id_progetto)
+    if nome_cliente:
+        query += " AND p.cliente LIKE %s"
+        params.append(f"%{nome_cliente}%")
 
-    columns = [
-        'id','cliente','settore','project_manager','sales_recruiter',
-        'stato_progetto','data_inizio','data_fine','tempo_totale',
-        'recensione_stelle','recensione_data','tempo_previsto'
-    ]
+    c.execute(query, tuple(params))
+    risultati = c.fetchall()
     conn.close()
+    return risultati
 
-    df = pd.DataFrame(rows, columns=columns)
-    return df
-
-#######################################
-# GESTIONE BACKUP
-#######################################
-def backup_database(max_backups=5):
-    """
-    Con MySQL non possiamo copiare un file .db come in SQLite.
-    Mostriamo solo un messaggio informativo.
-    """
-    st.info("Backup su MySQL non implementato (nessun file database.db da copiare).")
-
-def check_weekly_backup():
-    """
-    Su MySQL non c'è un file locale da copiare.
-    Evitiamo l'implementazione.
-    """
-    pass
-
-check_weekly_backup()
-
-#######################################
-# CAPACITA' PER RECRUITER
-#######################################
-def carica_recruiters_capacity():
-    """
-    Restituisce un DF con [sales_recruiter, capacity].
-    """
+def aggiorna_progetto(
+    id_progetto,
+    cliente,
+    settore_id,
+    project_manager_id,
+    sales_recruiter_id,
+    stato_progetto,
+    data_inizio,
+    data_fine,
+    recensione_stelle,
+    recensione_data,
+    tempo_previsto
+):
     conn = get_connection()
     c = conn.cursor()
-    query = '''
-        SELECT r.nome AS sales_recruiter,
-               IFNULL(rc.capacity_max, 5) AS capacity
-        FROM recruiters r
-        LEFT JOIN recruiter_capacity rc ON r.id = rc.recruiter_id
-        ORDER BY r.nome
-    '''
-    c.execute(query)
-    rows = c.fetchall()
-    df_capacity = pd.DataFrame(rows, columns=['sales_recruiter', 'capacity'])
+
+    if data_inizio and data_fine:
+        tempo_totale = (data_fine - data_inizio).days
+    else:
+        tempo_totale = None
+
+    data_inizio_str = data_inizio.strftime('%Y-%m-%d') if data_inizio else None
+    data_fine_str = data_fine.strftime('%Y-%m-%d') if data_fine else None
+    recensione_data_str = recensione_data.strftime('%Y-%m-%d') if recensione_data else None
+
+    query = """
+        UPDATE progetti
+        SET 
+            cliente = %s,
+            settore_id = %s,
+            project_manager_id = %s,
+            sales_recruiter_id = %s,
+            stato_progetto = %s,
+            data_inizio = %s,
+            data_fine = %s,
+            tempo_totale = %s,
+            recensione_stelle = %s,
+            recensione_data = %s,
+            tempo_previsto = %s
+        WHERE id = %s
+    """
+    c.execute(query, (
+        cliente,
+        settore_id,
+        project_manager_id,
+        sales_recruiter_id,
+        stato_progetto,
+        data_inizio_str,
+        data_fine_str,
+        tempo_totale,
+        recensione_stelle,
+        recensione_data_str,
+        tempo_previsto,
+        id_progetto
+    ))
+    conn.commit()
     conn.close()
-    return df_capacity
 
-#######################################
-# FUNZIONE PER CALCOLARE LEADERBOARD MENSILE
-#######################################
-def calcola_leaderboard_mensile(df, start_date, end_date):
-    """
-    Copia identica della funzione in SQLite, ma su df (DataFrame).
-    """
-    df_temp = df.copy()
-    df_temp['data_inizio_dt'] = pd.to_datetime(df_temp['data_inizio'], errors='coerce')
-    df_temp['recensione_stelle'] = df_temp['recensione_stelle'].fillna(0).astype(int)
+def cancella_progetto(id_progetto):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("DELETE FROM progetti WHERE id = %s", (id_progetto,))
+    conn.commit()
+    conn.close()
 
-    # bonus da recensioni
-    def bonus_stelle(stelle):
-        if stelle == 4:
-            return 300
-        elif stelle == 5:
-            return 500
-        return 0
-    
-    df_temp['bonus'] = df_temp['recensione_stelle'].apply(bonus_stelle)
+def carica_dati_completo():
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("SELECT * FROM progetti")
+    rows = c.fetchall()
+    col_names = [desc[0] for desc in c.description]
+    conn.close()
 
-    mask = (
-        (df_temp['stato_progetto'] == 'Completato') &
-        (df_temp['data_inizio_dt'] >= pd.Timestamp(start_date)) &
-        (df_temp['data_inizio_dt'] <= pd.Timestamp(end_date))
-    )
-    df_filtro = df_temp[mask].copy()
+    df = pd.DataFrame(rows, columns=col_names)
 
-    if df_filtro.empty:
-        return pd.DataFrame([], columns=[
-            'sales_recruiter','completati','tempo_medio','bonus_totale','punteggio','badge'
-        ])
+    # === Esempio di Fix: convertiamo 'tempo_previsto' a numerico ===
+    if "tempo_previsto" in df.columns:
+        df["tempo_previsto"] = pd.to_numeric(df["tempo_previsto"], errors="coerce")
+        df["tempo_previsto"] = df["tempo_previsto"].fillna(0).astype(int)
+    # ===============================================================
 
-    group = df_filtro.groupby('sales_recruiter')
-    completati = group.size().reset_index(name='completati')
-    tempo_medio = group['tempo_totale'].mean().reset_index(name='tempo_medio')
-    bonus_sum = group['bonus'].sum().reset_index(name='bonus_totale')
+    return df
 
-    leaderboard = (
-        completati
-        .merge(tempo_medio, on='sales_recruiter', how='left')
-        .merge(bonus_sum, on='sales_recruiter', how='left')
-    )
+####################################
+# Dizionari e Layout
+####################################
 
-    leaderboard['tempo_medio'] = leaderboard['tempo_medio'].fillna(0)
-    leaderboard['bonus_totale'] = leaderboard['bonus_totale'].fillna(0)
-
-    # punteggio
-    leaderboard['punteggio'] = (
-        leaderboard['completati'] * 10
-        + leaderboard['bonus_totale']
-        + leaderboard['tempo_medio'].apply(lambda x: max(0, 30 - x))
-    )
-
-    # badge
-    def assegna_badge(n):
-        if n >= 20:
-            return "Gold"
-        elif n >= 10:
-            return "Silver"
-        elif n >= 5:
-            return "Bronze"
-        return ""
-    leaderboard['badge'] = leaderboard['completati'].apply(assegna_badge)
-
-    leaderboard = leaderboard.sort_values('punteggio', ascending=False)
-    return leaderboard
-
-#######################################
-# CONFIG E LAYOUT
-#######################################
 STATI_PROGETTO = ["Completato", "In corso", "Bloccato"]
 
-# Carichiamo i riferimenti
-settori_db = carica_settori()
-pm_db = carica_project_managers()
-rec_db = carica_recruiters()
+settori_db = carica_settori_db()
+project_managers_db = carica_project_managers_db()
+recruiters_db = carica_recruiters_db()
 
-st.title("Gestione Progetti di Recruiting")
-st.sidebar.title("Navigazione")
-scelta = st.sidebar.radio("Vai a", ["Inserisci Dati", "Dashboard", "Gestisci Opzioni"])
+settori_dict = {row[0]: row[1] for row in settori_db}
+settori_dict_reverse = {v: k for k, v in settori_dict.items()}
 
-#######################################
-# 1. INSERISCI DATI
-#######################################
-if scelta == "Inserisci Dati":
-    st.header("Inserimento Nuovo Progetto")
-    
-    with st.form("form_inserimento_progetto"):
-        cliente = st.text_input("Nome Cliente")
-        
-        # Settore
-        settori_nomi = [s[1] for s in settori_db]
-        settore_sel = st.selectbox("Settore Cliente", settori_nomi)
-        settore_id = next(s[0] for s in settori_db if s[1] == settore_sel)
-        
-        # Project Manager
-        pm_nomi = [p[1] for p in pm_db]
-        pm_sel = st.selectbox("Project Manager", pm_nomi)
-        pm_id = next(p[0] for p in pm_db if p[1] == pm_sel)
-        
-        # Recruiter
-        rec_nomi = [r[1] for r in rec_db]
-        rec_sel = st.selectbox("Sales Recruiter", rec_nomi)
-        rec_id = next(r[0] for r in rec_db if r[1] == rec_sel)
-        
-        data_inizio_str = st.text_input("Data di Inizio (GG/MM/AAAA)", 
-                                        value="", 
-                                        placeholder="Lascia vuoto se non disponibile")
+project_managers_dict = {row[0]: row[1] for row in project_managers_db}
+project_managers_dict_reverse = {v: k for k, v in project_managers_dict.items()}
 
-        submitted = st.form_submit_button("Inserisci Progetto")
-        if submitted:
-            if not cliente.strip():
-                st.error("Il campo 'Nome Cliente' è obbligatorio!")
-                st.stop()
-            
-            if data_inizio_str.strip():
-                try:
-                    di = datetime.strptime(data_inizio_str.strip(), '%d/%m/%Y')
-                    data_inizio_sql = di.strftime('%Y-%m-%d')
-                except ValueError:
-                    st.error("Formato Data Inizio non valido. Usa GG/MM/AAAA.")
-                    st.stop()
-            else:
-                data_inizio_sql = None
-            
-            inserisci_dati(cliente.strip(), settore_id, pm_id, rec_id, data_inizio_sql)
-            st.success("Progetto inserito con successo!")
+recruiters_dict = {row[0]: row[1] for row in recruiters_db}
+recruiters_dict_reverse = {v: k for k, v in recruiters_dict.items()}
 
-#######################################
-# 2. DASHBOARD
-#######################################
-elif scelta == "Dashboard":
-    st.header("Dashboard di Controllo")
-    df = carica_dati_completo()
-    
-    if df.empty:
-        st.info("Nessun progetto disponibile nel DB.")
+if 'progetto_selezionato' not in st.session_state:
+    st.session_state.progetto_selezionato = None
+
+st.title("Gestione Clienti")
+
+st.header("Cerca Progetto")
+
+with st.form("form_cerca_progetto"):
+    id_progetto_str = st.text_input("ID Progetto (lascia vuoto se non vuoi specificare)")
+    nome_cliente = st.text_input("Nome Cliente")
+    submit_cerca = st.form_submit_button("Cerca")
+
+if submit_cerca:
+    if not id_progetto_str and not nome_cliente:
+        st.error("Inserisci almeno l'ID o il nome del cliente per la ricerca.")
     else:
-        # Creiamo le Tab come in precedenza
-        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-            "Panoramica",
-            "Carico Proiettato / Previsione",
-            "Bonus e Premi",
-            "Backup",
-            "Altre Info",
-            "Classifica"
-        ])
-
-        ################################
-        # TAB 1: Panoramica
-        ################################
-        with tab1:
-            st.subheader("Tempo Medio Generale e per Recruiter/Settore")
-
-            df_comp = df[df['stato_progetto'] == 'Completato']
-            tempo_medio_globale = df_comp['tempo_totale'].dropna().mean() or 0
-            st.metric("Tempo Medio Globale (giorni)", round(tempo_medio_globale,2))
-
-            # Tempo medio per recruiter
-            rec_media = df_comp.groupby('sales_recruiter')['tempo_totale'].mean().reset_index()
-            rec_media['tempo_totale'] = rec_media['tempo_totale'].fillna(0).round(2)
-            fig_rec = px.bar(
-                rec_media,
-                x='sales_recruiter',
-                y='tempo_totale',
-                labels={'tempo_totale':'Giorni Medi'},
-                title='Tempo Medio di Chiusura per Recruiter'
-            )
-            st.plotly_chart(fig_rec)
-
-            # Tempo medio per settore
-            sett_media = df_comp.groupby('settore')['tempo_totale'].mean().reset_index()
-            sett_media['tempo_totale'] = sett_media['tempo_totale'].fillna(0).round(2)
-            fig_sett = px.bar(
-                sett_media,
-                x='settore',
-                y='tempo_totale',
-                labels={'tempo_totale':'Giorni Medi'},
-                title='Tempo Medio di Chiusura per Settore'
-            )
-            st.plotly_chart(fig_sett)
-
-            st.subheader("Progetti Attivi (In corso + Bloccato)")
-            df_attivi = df[df['stato_progetto'].isin(["In corso", "Bloccato"])]
-            attivi_count = df_attivi.groupby('sales_recruiter').size().reset_index(name='Progetti Attivi')
-            fig_attivi = px.bar(
-                attivi_count,
-                x='sales_recruiter',
-                y='Progetti Attivi',
-                title='Numero di Progetti Attivi per Recruiter'
-            )
-            st.plotly_chart(fig_attivi)
-
-            st.subheader("Capacità di Carico e Over Capacity")
-            df_capacity = carica_recruiters_capacity()
-            recruiters_unici = df['sales_recruiter'].unique()
-            cap_df = pd.DataFrame({'sales_recruiter': recruiters_unici})
-            cap_df = cap_df.merge(attivi_count, on='sales_recruiter', how='left').fillna(0)
-            cap_df = cap_df.merge(df_capacity, on='sales_recruiter', how='left').fillna(5)
-            cap_df['capacity'] = cap_df['capacity'].astype(int)
-            cap_df['Capacità Disponibile'] = cap_df['capacity'] - cap_df['Progetti Attivi']
-            cap_df.loc[cap_df['Capacità Disponibile'] < 0, 'Capacità Disponibile'] = 0
-
-            overcap = cap_df[cap_df['Capacità Disponibile'] == 0]
-            if not overcap.empty:
-                st.warning("Attenzione! I seguenti Recruiter sono a capacità 0:")
-                st.write(overcap[['sales_recruiter','Progetti Attivi','capacity','Capacità Disponibile']])
-
-            fig_carico = px.bar(
-                cap_df,
-                x='sales_recruiter',
-                y=['Progetti Attivi','Capacità Disponibile'],
-                barmode='group',
-                title='Capacità di Carico per Recruiter'
-            )
-            st.plotly_chart(fig_carico)
-
-        ################################
-        # TAB 2: Carico Proiettato / Previsione
-        ################################
-        with tab2:
-            st.subheader("Progetti che si chiuderanno nei prossimi giorni/settimane")
-            st.write("""
-                Escludiamo i progetti che hanno tempo_previsto=0 (non impostato).
-                Calcoliamo la data di fine calcolata = data_inizio + tempo_previsto (giorni).
-            """)
-            
-            df['data_inizio_dt'] = pd.to_datetime(df['data_inizio'], errors='coerce')
-            df_ok = df[(df['tempo_previsto'].notna()) & (df['tempo_previsto']>0)]
-            df_ok['fine_calcolata'] = pd.to_datetime(df_ok['data_inizio'], errors='coerce') + \
-                                      pd.to_timedelta(df_ok['tempo_previsto'], unit='D')
-
-            df_incorso = df_ok[df_ok['stato_progetto'] == 'In corso'].copy()
-
-            st.subheader("Mostriamo i Progetti In Corso con tempo_previsto > 0")
-            st.dataframe(df_incorso[['cliente','stato_progetto','data_inizio','tempo_previsto','fine_calcolata','sales_recruiter']])
-
-            st.write("**Vuoi vedere quali progetti si chiuderanno entro X giorni da oggi?**")
-            orizzonte_giorni = st.number_input("Seleziona i giorni di orizzonte", value=14, min_value=1)
-            today = datetime.today()
-            df_prossimi = df_incorso[df_incorso['fine_calcolata'] <= (today + timedelta(days=orizzonte_giorni))]
-            if not df_prossimi.empty:
-                st.info(f"Progetti in corso che si chiuderanno entro {orizzonte_giorni} giorni:")
-                st.dataframe(df_prossimi[['cliente','sales_recruiter','fine_calcolata']])
-                
-                st.subheader("Recruiter che si libereranno in questo orizzonte")
-                closings = df_prossimi.groupby('sales_recruiter').size().reset_index(name='progetti_che_chiudono')
-                df_capacity = carica_recruiters_capacity()
-                df_attivi = df[df['stato_progetto'].isin(["In corso","Bloccato"])]
-                attivi_count = df_attivi.groupby('sales_recruiter').size().reset_index(name='Progetti Attivi')
-
-                rec_df = df_capacity.merge(attivi_count, on='sales_recruiter', how='left').fillna(0)
-                rec_df['Progetti Attivi'] = rec_df['Progetti Attivi'].astype(int)
-                rec_df = rec_df.merge(closings, on='sales_recruiter', how='left').fillna(0)
-                rec_df['progetti_che_chiudono'] = rec_df['progetti_che_chiudono'].astype(int)
-
-                rec_df['Nuovi Attivi'] = rec_df['Progetti Attivi'] - rec_df['progetti_che_chiudono']
-                rec_df.loc[rec_df['Nuovi Attivi'] < 0, 'Nuovi Attivi'] = 0
-                rec_df['Capacità Disponibile'] = rec_df['capacity'] - rec_df['Nuovi Attivi']
-                rec_df.loc[rec_df['Capacità Disponibile'] < 0, 'Capacità Disponibile'] = 0
-
-                st.dataframe(rec_df[['sales_recruiter','capacity','Progetti Attivi','progetti_che_chiudono','Nuovi Attivi','Capacità Disponibile']])
-                st.write("""
-                    Da questa tabella vedi quanti progetti chiudono per ogni recruiter 
-                    entro l'orizzonte selezionato, 
-                    e di conseguenza la nuova 'Capacità Disponibile' calcolata.
-                """)
-            else:
-                st.info("Nessun progetto in corso si chiuderà in questo orizzonte.")
-
-        ################################
-        # TAB 3: Bonus e Premi
-        ################################
-        with tab3:
-            st.subheader("Bonus e Premi")
-            st.write("""
-                Esempio: 4 stelle => 300€, 5 stelle => 500€.
-            """)
-            data_mese = st.date_input("Seleziona un Mese", value=datetime.today())
-            import pandas as pd
-            mese_inizio = data_mese.replace(day=1)
-            mese_fine = (mese_inizio + pd.offsets.MonthEnd(1)).date()
-
-            df['recensione_data_dt'] = pd.to_datetime(df['recensione_data'], errors='coerce')
-            df_mese = df[
-                (df['recensione_data_dt'] >= pd.Timestamp(mese_inizio)) & 
-                (df['recensione_data_dt'] <= pd.Timestamp(mese_fine))
+        id_progetto = int(id_progetto_str) if id_progetto_str.isdigit() else None
+        risultati = cerca_progetti(id_progetto=id_progetto, nome_cliente=nome_cliente.strip() or None)
+        if risultati:
+            columns = [
+                'id','cliente','settore_id','project_manager_id','sales_recruiter_id',
+                'stato_progetto','data_inizio','data_fine','tempo_totale',
+                'recensione_stelle','recensione_data','tempo_previsto'
             ]
+            df_risultati = pd.DataFrame(risultati, columns=columns)
 
-            st.write(f"Progetti con recensione in questo mese: {len(df_mese)}")
+            # Mappa ID -> nomi
+            df_risultati['settore'] = df_risultati['settore_id'].map(settori_dict)
+            df_risultati['project_manager'] = df_risultati['project_manager_id'].map(project_managers_dict)
+            df_risultati['sales_recruiter'] = df_risultati['sales_recruiter_id'].map(recruiters_dict)
 
-            def calcola_bonus(stelle):
-                if stelle == 4:
-                    return 300
-                elif stelle == 5:
-                    return 500
-                else:
-                    return 0
+            # Format date
+            df_risultati['data_inizio'] = df_risultati['data_inizio'].apply(format_date_display)
+            df_risultati['data_fine']   = df_risultati['data_fine'].apply(format_date_display)
+            df_risultati['recensione_data'] = df_risultati['recensione_data'].apply(format_date_display)
 
-            df_mese['bonus'] = df_mese['recensione_stelle'].fillna(0).astype(int).apply(calcola_bonus)
-            bonus_rec = df_mese.groupby('sales_recruiter')['bonus'].sum().reset_index()
-            fig_bonus = px.bar(
-                bonus_rec,
-                x='sales_recruiter',
-                y='bonus',
-                labels={'bonus':'Bonus (€)'},
-                title='Bonus del Mese'
+            df_risultati['stato_progetto'] = df_risultati['stato_progetto'].fillna("")
+            df_risultati['recensione_stelle'] = df_risultati['recensione_stelle'].fillna(0).astype(int)
+            df_risultati['tempo_previsto'] = df_risultati['tempo_previsto'].fillna(0).astype(int)
+
+            st.write("**Dati recuperati:**")
+            st.dataframe(df_risultati)
+
+            st.header("Aggiorna Progetto Selezionato")
+            progetto_scelto = st.selectbox(
+                "Seleziona ID Progetto da Aggiornare",
+                options=df_risultati['id'].tolist()
             )
-            st.plotly_chart(fig_bonus)
+            st.session_state.progetto_selezionato = progetto_scelto
+        else:
+            st.info("Nessun progetto trovato con i criteri inseriti.")
 
-            st.subheader("Premio Annuale (Recensioni a 5 stelle)")
-            oggi = datetime.today().date()
-            un_anno_fa = oggi - timedelta(days=365)
-            df_ultimo_anno = df[
-                (df['recensione_data_dt'] >= pd.Timestamp(un_anno_fa)) &
-                (df['recensione_stelle'] == 5)
-            ]
-            rec_5 = df_ultimo_anno.groupby('sales_recruiter').size().reset_index(name='cinque_stelle')
-            if not rec_5.empty:
-                max_num = rec_5['cinque_stelle'].max()
-                vincitori = rec_5[rec_5['cinque_stelle'] == max_num]
-                if len(vincitori) == 1:
-                    st.success(f"Il premio annuale va a {vincitori.iloc[0]['sales_recruiter']} con {max_num} recensioni 5 stelle!")
-                else:
-                    st.success(f"Premio annuale condiviso tra: {', '.join(vincitori['sales_recruiter'])}, con {max_num} 5 stelle!")
+if st.session_state.progetto_selezionato:
+    row_list = cerca_progetti(id_progetto=st.session_state.progetto_selezionato)
+    if not row_list:
+        st.error("Progetto non trovato. Forse è stato eliminato?")
+        st.stop()
+
+    progetto = row_list[0]
+
+    st.header("Aggiorna / Elimina Progetto")
+
+    settore_attuale = settori_dict.get(progetto[2], None)
+    pm_attuale = project_managers_dict.get(progetto[3], None)
+    rec_attuale = recruiters_dict.get(progetto[4], None)
+
+    col_upd, col_del = st.columns([3,1])
+    with col_upd:
+        with st.form("form_aggiorna_progetto"):
+            cliente_agg = st.text_input("Nome Cliente", value=progetto[1])
+
+            settori_nomi = [s[1] for s in settori_db]
+            if settore_attuale and settore_attuale not in settori_nomi:
+                settori_nomi.append(settore_attuale)
+            if not settore_attuale:
+                settore_attuale = settori_nomi[0]
+
+            settore_scelto = st.selectbox(
+                "Settore Cliente",
+                options=settori_nomi,
+                index=settori_nomi.index(settore_attuale) if settore_attuale in settori_nomi else 0
+            )
+            settore_id_agg = settori_dict_reverse.get(settore_scelto, None)
+
+            # PM
+            pm_nomi = [p[1] for p in project_managers_db]
+            if pm_attuale and pm_attuale not in pm_nomi:
+                pm_nomi.append(pm_attuale)
+            if not pm_attuale:
+                pm_attuale = pm_nomi[0]
+
+            pm_scelto = st.selectbox(
+                "Project Manager",
+                options=pm_nomi,
+                index=pm_nomi.index(pm_attuale) if pm_attuale in pm_nomi else 0
+            )
+            pm_id_agg = project_managers_dict_reverse.get(pm_scelto, None)
+
+            # Recruiter
+            rec_nomi = [r[1] for r in recruiters_db]
+            if rec_attuale and rec_attuale not in rec_nomi:
+                rec_nomi.append(rec_attuale)
+            if not rec_attuale:
+                rec_attuale = rec_nomi[0]
+
+            rec_scelto = st.selectbox(
+                "Sales Recruiter",
+                options=rec_nomi,
+                index=rec_nomi.index(rec_attuale) if rec_attuale in rec_nomi else 0
+            )
+            rec_id_agg = recruiters_dict_reverse.get(rec_scelto, None)
+
+            stato_attuale = progetto[5] if progetto[5] else STATI_PROGETTO[0]
+            if stato_attuale not in STATI_PROGETTO:
+                stato_attuale = STATI_PROGETTO[0]
+            stato_agg = st.selectbox(
+                "Stato Progetto",
+                STATI_PROGETTO,
+                index=STATI_PROGETTO.index(stato_attuale) if stato_attuale in STATI_PROGETTO else 0
+            )
+
+            st.write("**Lascia vuoto per cancellare la data.**")
+
+            data_inizio_existing = parse_date(progetto[6])
+            data_fine_existing   = parse_date(progetto[7])
+
+            data_inizio_str = data_inizio_existing.strftime('%d/%m/%Y') if data_inizio_existing else ""
+            data_fine_str   = data_fine_existing.strftime('%d/%m/%Y') if data_fine_existing else ""
+
+            data_inizio_agg = st.text_input("Data Inizio (GG/MM/AAAA)", value=data_inizio_str)
+            data_fine_agg   = st.text_input("Data Fine (GG/MM/AAAA)",  value=data_fine_str)
+
+            rec_stelle_attuale = progetto[9] or 0
+            rec_stelle_agg = st.selectbox("Recensione (Stelle)", [0,1,2,3,4,5], index=rec_stelle_attuale)
+
+            rec_data_existing = parse_date(progetto[10])
+            if rec_stelle_agg > 0:
+                rec_data_val = rec_data_existing if rec_data_existing else datetime.today().date()
+                rec_data_input = st.date_input("Data Recensione", value=rec_data_val)
             else:
-                st.info("Nessuna recensione a 5 stelle nell'ultimo anno.")
+                rec_data_input = None
 
-        ################################
-        # TAB 4: Backup
-        ################################
-        with tab4:
-            st.subheader("Gestione Backup")
-            if st.button("Esegui Backup Ora"):
-                backup_database()
+            tempo_previsto_existing = progetto[11] if progetto[11] else 0
+            tempo_previsto_agg = st.number_input("Tempo Previsto (giorni)",
+                                                value=int(tempo_previsto_existing),
+                                                min_value=0)
 
-            backup_dir = 'backup'
-            if os.path.exists(backup_dir):
-                backup_files = sorted(
-                    [f for f in os.listdir(backup_dir) if f.endswith('.db')],
-                    key=lambda x: os.path.getmtime(os.path.join(backup_dir, x)),
-                    reverse=True
-                )
-                if backup_files:
-                    for bf in backup_files:
-                        path_bf = os.path.join(backup_dir, bf)
-                        with open(path_bf, 'rb') as f:
-                            st.download_button(
-                                label=f"Scarica {bf}",
-                                data=f.read(),
-                                file_name=bf,
-                                mime='application/octet-stream'
-                            )
-                else:
-                    st.info("Nessun backup disponibile.")
-            else:
-                st.info("La cartella di backup non esiste.")
+            sub_update = st.form_submit_button("Aggiorna Progetto")
 
-            st.markdown("---")
-            st.write("Ripristina Backup:")
-            up_file = st.file_uploader("Carica un file .db per ripristinare", type=['db'])
-            if up_file:
-                if st.button("Ripristina DB"):
+            if sub_update:
+                if data_inizio_agg.strip():
                     try:
-                        fname = f"uploaded_{datetime.now().strftime('%Y%m%d-%H%M%S')}.db"
-                        path_tmp = os.path.join('backup', fname)
-                        with open(path_tmp, 'wb') as f:
-                            f.write(up_file.getbuffer())
-                        shutil.copy(path_tmp, 'database.db')
-                        st.success("Backup ripristinato! Ricarica l'app.")
-                        st.experimental_rerun()
-                    except Exception as e:
-                        st.error(f"Errore ripristino: {e}")
-
-        ################################
-        # TAB 5: Altre Info
-        ################################
-        with tab5:
-            st.subheader("Altre Info / Gamification e Strumenti")
-            st.write("""
-            - Qui puoi mettere info generiche, 
-            - Over capacity email, 
-            - altre feature.
-            """)
-
-        ################################
-        # TAB 6: Classifica
-        ################################
-        with tab6:
-            st.subheader("Classifica (Matplotlib)")
-
-            # (1) RECRUITER PIÙ VICINO AL PREMIO ANNUALE (5 STELLE)
-            df['recensione_stelle'] = df['recensione_stelle'].fillna(0).astype(int)
-            df['recensione_data_dt'] = pd.to_datetime(df['recensione_data'], errors='coerce')
-
-            st.markdown("**1) Recruiter più vicino al Premio Annuale (5 stelle)**")
-            oggi = datetime.today().date()
-            un_anno_fa = oggi - timedelta(days=365)
-            df_ultimo_anno = df[
-                (df['recensione_data_dt'] >= pd.Timestamp(un_anno_fa)) &
-                (df['recensione_stelle'] == 5)
-            ]
-            annual_5 = df_ultimo_anno.groupby('sales_recruiter').size().reset_index(name='cinque_stelle')
-            annual_5 = annual_5.sort_values(by='cinque_stelle', ascending=False)
-            if annual_5.empty:
-                st.info("Nessuna 5 stelle nell'ultimo anno.")
-            else:
-                fig1, ax1 = plt.subplots(figsize=(6,4))
-                ax1.bar(annual_5['sales_recruiter'], annual_5['cinque_stelle'], color='blue')
-                ax1.set_title("N. Recensioni 5 stelle (ultimo anno)")
-                ax1.set_xlabel("Recruiter")
-                ax1.set_ylabel("Recensioni 5 stelle")
-                plt.xticks(rotation=45, ha='right')
-                st.pyplot(fig1)
-
-            # (2) RECRUITER PIÙ VELOCE (TEMPO MEDIO)
-            st.markdown("**2) Recruiter più veloce (Tempo Medio)**")
-            df_comp = df[df['stato_progetto'] == 'Completato'].copy()
-            veloce = df_comp.groupby('sales_recruiter')['tempo_totale'].mean().reset_index()
-            veloce['tempo_totale'] = veloce['tempo_totale'].fillna(0)
-            veloce = veloce.sort_values(by='tempo_totale', ascending=True)
-            if veloce.empty:
-                st.info("Nessun progetto completato per calcolare la velocità.")
-            else:
-                fig2, ax2 = plt.subplots(figsize=(6,4))
-                ax2.bar(veloce['sales_recruiter'], veloce['tempo_totale'], color='green')
-                ax2.set_title("Tempo Medio (giorni) - Più basso = più veloce")
-                ax2.set_xlabel("Recruiter")
-                ax2.set_ylabel("Tempo Medio (giorni)")
-                plt.xticks(rotation=45, ha='right')
-                st.pyplot(fig2)
-
-            # (3) RECRUITER CON PIÙ BONUS
-            st.markdown("**3) Recruiter con più Bonus ottenuti** (4 stelle=300, 5 stelle=500)")
-            def calcola_bonus_tmp(stelle):
-                if stelle == 4:
-                    return 300
-                elif stelle == 5:
-                    return 500
+                        data_inizio_parsed = datetime.strptime(data_inizio_agg.strip(), '%d/%m/%Y').date()
+                    except ValueError:
+                        st.error("Data inizio non valida (GG/MM/AAAA).")
+                        st.stop()
                 else:
-                    return 0
-            df['bonus'] = df['recensione_stelle'].apply(calcola_bonus_tmp)
-            bonus_df = df.groupby('sales_recruiter')['bonus'].sum().reset_index()
-            bonus_df = bonus_df.sort_values(by='bonus', ascending=False)
-            if bonus_df.empty:
-                st.info("Nessun bonus calcolato.")
-            else:
-                fig3, ax3 = plt.subplots(figsize=(6,4))
-                ax3.bar(bonus_df['sales_recruiter'], bonus_df['bonus'], color='orange')
-                ax3.set_title("Bonus Totale Ottenuto")
-                ax3.set_xlabel("Recruiter")
-                ax3.set_ylabel("Bonus (€)")
-                plt.xticks(rotation=45, ha='right')
-                st.pyplot(fig3)
+                    data_inizio_parsed = None
 
-            # (4) LEADERBOARD MENSILE
-            st.markdown("**4) Leaderboard Mensile**")
+                if data_fine_agg.strip():
+                    try:
+                        data_fine_parsed = datetime.strptime(data_fine_agg.strip(), '%d/%m/%Y').date()
+                    except ValueError:
+                        st.error("Data fine non valida (GG/MM/AAAA).")
+                        st.stop()
+                else:
+                    data_fine_parsed = None
 
-            # Scegli data di riferimento
-            data_riferimento = st.date_input(
-                "Seleziona una data del mese da analizzare",
-                value=datetime.today()
-            )
-            mese_inizio = data_riferimento.replace(day=1)
-            import pandas as pd
-            mese_fine = (mese_inizio + pd.offsets.MonthEnd(1)).date()
+                if data_inizio_parsed and data_fine_parsed:
+                    if data_fine_parsed < data_inizio_parsed:
+                        st.error("Data fine non può essere precedente a data inizio.")
+                        st.stop()
 
-            st.write(f"Mese in analisi: {mese_inizio.strftime('%d/%m/%Y')} - {mese_fine.strftime('%d/%m/%Y')}")
+                if rec_stelle_agg > 0 and not rec_data_input:
+                    st.error("Se hai messo stelle>0, devi specificare la data recensione.")
+                    st.stop()
 
-            leaderboard_df = calcola_leaderboard_mensile(df, mese_inizio, mese_fine)
-            if leaderboard_df.empty:
-                st.info("Nessun progetto completato in questo periodo.")
-            else:
-                st.write("Classifica Mensile con punteggio e badge:")
-                st.dataframe(leaderboard_df)
+                if settore_id_agg is None:
+                    st.error(f"Settore '{settore_scelto}' non esiste nei dizionari.")
+                    st.stop()
+                if pm_id_agg is None:
+                    st.error(f"PM '{pm_scelto}' non esiste nei dizionari.")
+                    st.stop()
+                if rec_id_agg is None:
+                    st.error(f"Recruiter '{rec_scelto}' non esiste nei dizionari.")
+                    st.stop()
 
-                # Grafico punteggio con Plotly
-                fig_leader = px.bar(
-                    leaderboard_df,
-                    x='sales_recruiter',
-                    y='punteggio',
-                    color='badge',  # per vedere i diversi badge
-                    title='Leaderboard Mensile'
+                aggiorna_progetto(
+                    id_progetto=st.session_state.progetto_selezionato,
+                    cliente=cliente_agg.strip(),
+                    settore_id=settore_id_agg,
+                    project_manager_id=pm_id_agg,
+                    sales_recruiter_id=rec_id_agg,
+                    stato_progetto=stato_agg,
+                    data_inizio=data_inizio_parsed,
+                    data_fine=data_fine_parsed,
+                    recensione_stelle=rec_stelle_agg,
+                    recensione_data=rec_data_input,
+                    tempo_previsto=tempo_previsto_agg
                 )
-                st.plotly_chart(fig_leader)
+                st.success(f"Progetto {st.session_state.progetto_selezionato} aggiornato con successo!")
+                st.session_state.progetto_selezionato = None
 
-                st.markdown("""
-                **Formula Punteggio**  
-                - +10 punti ogni progetto completato  
-                - +bonus (300/500) da recensioni 4/5 stelle  
-                - +max(0, 30 - tempo_medio) per invertire la velocità  
-                """)
-                st.markdown("""
-                **Badge**  
-                - Bronze = almeno 5 completati  
-                - Silver = almeno 10  
-                - Gold   = almeno 20  
-                """)
+    with col_del:
+        st.write("**Attenzione:**")
+        st.write("Eliminando il progetto, i dati spariranno definitivamente.")
+        elimina_button = st.button("Elimina Progetto")
+        if elimina_button:
+            cancella_progetto(st.session_state.progetto_selezionato)
+            st.success(f"Progetto ID {st.session_state.progetto_selezionato} eliminato con successo!")
+            st.session_state.progetto_selezionato = None
 
-#######################################
-# 3. GESTISCI OPZIONI
-#######################################
-elif scelta == "Gestisci Opzioni":
-    st.write("Gestione settori, PM, recruiters e capacity in manage_options.py")
+st.header("Tutti i Clienti Gestiti")
+
+if st.button("Mostra Tutti i Clienti"):
+    df_tutti_clienti = carica_dati_completo()
+    if df_tutti_clienti.empty:
+        st.info("Nessun progetto presente nel DB.")
+    else:
+        df_tutti_clienti['settore'] = df_tutti_clienti['settore_id'].map(settori_dict).fillna("Sconosciuto")
+        df_tutti_clienti['project_manager'] = df_tutti_clienti['project_manager_id'].map(project_managers_dict).fillna("Sconosciuto")
+        df_tutti_clienti['sales_recruiter'] = df_tutti_clienti['sales_recruiter_id'].map(recruiters_dict).fillna("Sconosciuto")
+
+        df_tutti_clienti['data_inizio'] = df_tutti_clienti['data_inizio'].apply(format_date_display)
+        df_tutti_clienti['data_fine'] = df_tutti_clienti['data_fine'].apply(format_date_display)
+        df_tutti_clienti['recensione_data'] = df_tutti_clienti['recensione_data'].apply(format_date_display)
+
+        df_tutti_clienti['stato_progetto'] = df_tutti_clienti['stato_progetto'].fillna("")
+        df_tutti_clienti['recensione_stelle'] = df_tutti_clienti['recensione_stelle'].fillna(0).astype(int)
+
+        # Se la colonna tempo_previsto esiste, la convertiamo in int con fillna(0).
+        if 'tempo_previsto' in df_tutti_clienti.columns:
+            df_tutti_clienti['tempo_previsto'] = pd.to_numeric(df_tutti_clienti['tempo_previsto'], errors="coerce")
+            df_tutti_clienti['tempo_previsto'] = df_tutti_clienti['tempo_previsto'].fillna(0).astype(int)
+
+        st.dataframe(df_tutti_clienti)
+
+        st.download_button(
+            label="Scarica Tutti i Clienti in CSV",
+            data=df_tutti_clienti.to_csv(index=False).encode('utf-8'),
+            file_name="tutti_clienti.csv",
+            mime="text/csv"
+        )
