@@ -7,8 +7,9 @@ from datetime import datetime, timedelta
 import plotly.express as px
 import shutil
 import os
-import matplotlib.pyplot as plt  # <--- Import Matplotlib
-
+import matplotlib.pyplot as plt
+import zipfile  # Import per gestire ZIP
+from io import BytesIO
 
 #######################################
 # FUNZIONI DI ACCESSO AL DB (MySQL)
@@ -27,7 +28,6 @@ def get_connection():
         database="railway"
     )
 
-
 def carica_settori():
     conn = get_connection()
     c = conn.cursor()
@@ -35,7 +35,6 @@ def carica_settori():
     rows = c.fetchall()
     conn.close()
     return rows
-
 
 def carica_project_managers():
     conn = get_connection()
@@ -45,7 +44,6 @@ def carica_project_managers():
     conn.close()
     return rows
 
-
 def carica_recruiters():
     conn = get_connection()
     c = conn.cursor()
@@ -53,7 +51,6 @@ def carica_recruiters():
     rows = c.fetchall()
     conn.close()
     return rows
-
 
 def inserisci_dati(cliente, settore_id, pm_id, rec_id, data_inizio):
     """
@@ -102,9 +99,8 @@ def inserisci_dati(cliente, settore_id, pm_id, rec_id, data_inizio):
     conn.commit()
     conn.close()
 
-    # Esegui backup (csv)
+    # Esegui backup (ZIP)
     backup_database()
-
 
 def carica_dati_completo():
     """
@@ -151,101 +147,106 @@ def carica_dati_completo():
     
     return df
 
-
 #######################################
-# GESTIONE BACKUP in CSV (Esportazione + Ripristino)
+# GESTIONE BACKUP in ZIP (Esportazione + Ripristino)
 #######################################
 
 def backup_database():
     """
     Esegue un "backup" esportando i dati di ciascuna tabella in un CSV
-    all’interno della cartella 'backup'.
+    all’interno di un archivio ZIP nella cartella 'backup'.
+    Sovrascrive l'archivio ZIP esistente.
     """
     backup_dir = "backup"
     if not os.path.exists(backup_dir):
         os.makedirs(backup_dir)
 
-    conn = get_connection()
-    c = conn.cursor()
-
-    # 1) Leggiamo l’elenco delle tabelle
-    c.execute("SHOW TABLES")
-    tables = c.fetchall()  # es. [('settori',), ('recruiters',), ...]
-
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    st.info("Inizio backup MySQL in CSV...")
-
-    for (table_name,) in tables:
-        backup_filename = f"backup_{timestamp}_{table_name}.csv"
-        backup_path = os.path.join(backup_dir, backup_filename)
-
-        # Query: SELECT * FROM <table_name>
-        c.execute(f"SELECT * FROM {table_name}")
-        rows = c.fetchall()
-        col_names = [desc[0] for desc in c.description]
-
-        df_table = pd.DataFrame(rows, columns=col_names)
-        df_table.to_csv(backup_path, index=False, encoding="utf-8")
-
-    conn.close()
-    st.success("Backup completato: file CSV creati in /backup.")
-
-
-def restore_from_csv(csv_file):
-    """
-    Esempio di ripristino da CSV singolo.
-    - Legge il nome tabella dal nome file (p.es. 'backup_20231022-120000_progetti.csv')
-    - Esegue TRUNCATE e poi INSERT su MySQL.
-    Attenzione: In un contesto reale potresti voler fare controlli, foreign keys, ecc.
-    """
-    filename = os.path.basename(csv_file.name)
-    # Esempio: backup_20231022-120000_progetti.csv => prendo 'progetti'
-    # Supponiamo che il nome tabella sia dopo l'ultimo underscore.
-    # Oppure potresti parsi l'intero pattern.
-    parts = filename.split("_")
-    if len(parts) < 3:
-        st.error("Impossibile determinare il nome della tabella dal file CSV.")
-        return
+    backup_zip_path = os.path.join(backup_dir, "backup.zip")
     
-    table_name_with_ext = parts[-1]  # p.es 'progetti.csv'
-    # Rimuoviamo l'estensione .csv
-    table_name = table_name_with_ext.replace(".csv", "")
+    # Crea un nuovo archivio ZIP, sovrascrivendo quello esistente
+    with zipfile.ZipFile(backup_zip_path, 'w', zipfile.ZIP_DEFLATED) as backup_zip:
+        conn = get_connection()
+        c = conn.cursor()
 
-    # Leggiamo i dati
-    df = pd.read_csv(csv_file)
-    st.info(f"Ripristino tabella '{table_name}' da CSV... (righe: {len(df)})")
+        # Legge l’elenco delle tabelle
+        c.execute("SHOW TABLES")
+        tables = c.fetchall()
 
-    # Connessione
-    conn = get_connection()
-    c = conn.cursor()
+        st.info("Inizio backup MySQL in ZIP...")
 
-    # TRUNCATE
-    try:
-        c.execute(f"TRUNCATE TABLE {table_name}")
-    except pymysql.Error as e:
-        st.error(f"Errore TRUNCATE {table_name}: {e}")
+        for (table_name,) in tables:
+            # Query: SELECT * FROM <table_name>
+            c.execute(f"SELECT * FROM {table_name}")
+            rows = c.fetchall()
+            col_names = [desc[0] for desc in c.description]
+
+            df_table = pd.DataFrame(rows, columns=col_names)
+            csv_data = df_table.to_csv(index=False, encoding="utf-8")
+
+            # Scrivi il CSV direttamente nell'archivio ZIP
+            backup_zip.writestr(f"{table_name}.csv", csv_data)
+
         conn.close()
-        return
     
-    # Costruiamo una query di insert con n col
-    col_names = df.columns.tolist()  # es. ['id', 'cliente', ...]
-    placeholders = ",".join(["%s"] * len(col_names))
-    col_list_str = ",".join(col_names)
-    insert_query = f"INSERT INTO {table_name} ({col_list_str}) VALUES ({placeholders})"
+    st.success("Backup completato: archivio ZIP creato in /backup/backup.zip.")
 
-    # Inseriamo riga per riga
-    try:
-        for row in df.itertuples(index=False, name=None):
-            # row è una tupla con i valori
-            c.execute(insert_query, row)
+def restore_from_zip(zip_file):
+    """
+    Ripristina il database da un archivio ZIP contenente CSV delle tabelle.
+    - Estrae ogni CSV e ripristina la relativa tabella.
+    """
+    if not zipfile.is_zipfile(zip_file):
+        st.error("Il file caricato non è un archivio ZIP valido.")
+        return
+
+    with zipfile.ZipFile(zip_file, 'r') as backup_zip:
+        # Ottieni la lista dei file CSV nell'archivio
+        csv_files = [f for f in backup_zip.namelist() if f.endswith('.csv')]
+
+        if not csv_files:
+            st.error("L'archivio ZIP non contiene file CSV di backup.")
+            return
+
+        conn = get_connection()
+        c = conn.cursor()
+
+        st.info("Inizio ripristino database da ZIP...")
+
+        for csv_file in csv_files:
+            table_name = os.path.splitext(os.path.basename(csv_file))[0]
+            st.write(f"Ripristino tabella '{table_name}'...")
+
+            # Leggi il contenuto del CSV
+            with backup_zip.open(csv_file) as f:
+                df = pd.read_csv(f)
+
+            # Esegui TRUNCATE sulla tabella
+            try:
+                c.execute(f"TRUNCATE TABLE {table_name}")
+            except pymysql.Error as e:
+                st.error(f"Errore TRUNCATE {table_name}: {e}")
+                conn.close()
+                return
+
+            # Prepara le colonne e i placeholder per l'INSERT
+            col_names = df.columns.tolist()
+            placeholders = ",".join(["%s"] * len(col_names))
+            col_list_str = ",".join(col_names)
+            insert_query = f"INSERT INTO {table_name} ({col_list_str}) VALUES ({placeholders})"
+
+            # Inserisci le righe
+            try:
+                for row in df.itertuples(index=False, name=None):
+                    c.execute(insert_query, row)
+            except pymysql.Error as e:
+                st.error(f"Errore durante l'INSERT nella tabella {table_name}: {e}")
+                conn.rollback()
+                conn.close()
+                return
+
         conn.commit()
-        st.success(f"Tabella '{table_name}' ripristinata con successo!")
-    except pymysql.Error as e:
-        st.error(f"Errore durante l'INSERT: {e}")
-        conn.rollback()
-    finally:
         conn.close()
-
+        st.success("Ripristino completato con successo da ZIP.")
 
 #######################################
 # CAPACITA' PER RECRUITER
@@ -265,7 +266,6 @@ def carica_recruiters_capacity():
     df_capacity = pd.DataFrame(rows, columns=['sales_recruiter', 'capacity'])
     conn.close()
     return df_capacity
-
 
 #######################################
 # FUNZIONE PER CALCOLARE LEADERBOARD MENSILE
@@ -324,11 +324,10 @@ def calcola_leaderboard_mensile(df, start_date, end_date):
         elif n >= 5:
             return "Bronze"
         return ""
-
+    
     leaderboard['badge'] = leaderboard['completati'].apply(assegna_badge)
     leaderboard = leaderboard.sort_values('punteggio', ascending=False)
     return leaderboard
-
 
 #######################################
 # CONFIG E LAYOUT
@@ -557,7 +556,6 @@ elif scelta == "Dashboard":
                 Esempio: 4 stelle => 300€, 5 stelle => 500€.
             """)
             data_mese = st.date_input("Seleziona un Mese", value=datetime.today())
-            import pandas as pd
             mese_inizio = data_mese.replace(day=1)
             mese_fine = (mese_inizio + pd.offsets.MonthEnd(1)).date()
 
@@ -612,39 +610,28 @@ elif scelta == "Dashboard":
         with tab4:
             st.subheader("Gestione Backup (Esportazione e Ripristino)")
             
-            st.markdown("### Esporta Dati in CSV")
+            st.markdown("### Esporta Dati in ZIP")
             if st.button("Esegui Backup Ora"):
                 backup_database()
 
-            backup_dir = 'backup'
-            if os.path.exists(backup_dir):
-                csv_files = sorted(
-                    [f for f in os.listdir(backup_dir) if f.endswith('.csv')],
-                    key=lambda x: os.path.getmtime(os.path.join(backup_dir, x)),
-                    reverse=True
-                )
-                if csv_files:
-                    st.write("Backup disponibili in CSV:")
-                    for bf in csv_files:
-                        path_bf = os.path.join(backup_dir, bf)
-                        with open(path_bf, 'rb') as f:
-                            st.download_button(
-                                label=f"Scarica {bf}",
-                                data=f.read(),
-                                file_name=bf,
-                                mime='text/csv'
-                            )
-                else:
-                    st.info("Nessun file CSV di backup presente.")
+            backup_zip_path = os.path.join('backup', 'backup.zip')
+            if os.path.exists(backup_zip_path):
+                with open(backup_zip_path, 'rb') as f:
+                    st.download_button(
+                        label="Scarica Backup ZIP",
+                        data=f,
+                        file_name="backup.zip",
+                        mime='application/zip'
+                    )
             else:
-                st.info("La cartella 'backup' non esiste.")
-
+                st.info("Nessun file ZIP di backup presente.")
+            
             st.markdown("---")
-            st.markdown("### Ripristina Dati da CSV")
-            up_file = st.file_uploader("Carica un CSV per ripristinare la relativa tabella", type=['csv'])
-            if up_file is not None:
-                if st.button("Ripristina DB da CSV"):
-                    restore_from_csv(up_file)
+            st.markdown("### Ripristina Dati da ZIP")
+            uploaded_zip = st.file_uploader("Carica l'archivio ZIP di backup", type=['zip'])
+            if uploaded_zip is not None:
+                if st.button("Ripristina DB da ZIP"):
+                    restore_from_zip(uploaded_zip)
 
         ################################
         # TAB 5: Altre Info
@@ -736,7 +723,6 @@ elif scelta == "Dashboard":
                 value=datetime.today()
             )
             mese_inizio = data_riferimento.replace(day=1)
-            import pandas as pd
             mese_fine = (mese_inizio + pd.offsets.MonthEnd(1)).date()
 
             st.write(f"Mese in analisi: {mese_inizio.strftime('%d/%m/%Y')} - {mese_fine.strftime('%d/%m/%Y')}")
@@ -770,9 +756,20 @@ elif scelta == "Dashboard":
                 - Gold   = almeno 20  
                 """)
 
-
 #######################################
 # 3. GESTISCI OPZIONI
 #######################################
 elif scelta == "Gestisci Opzioni":
     st.write("Gestione settori, PM, recruiters e capacity in manage_options.py")
+    st.markdown("### Nota")
+    st.markdown("""
+    La gestione delle opzioni (settori, Project Managers, Recruiters e Capacità) è gestita nel file `manage_options.py`.
+    Assicurati di navigare a quella pagina per gestire le tue opzioni.
+    """)
+
+# Nota: Se desideri integrare le funzionalità di gestione direttamente in `app.py`, dovresti incorporare il codice di `manage_options.py` qui.
+# Tuttavia, mantenere separate le funzionalità aiuta a mantenere il codice organizzato e manutenibile.
+
+#######################################
+# FINE DEL FILE app.py
+#######################################
