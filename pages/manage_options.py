@@ -1,13 +1,19 @@
 # pages/manage_options.py
 
 import streamlit as st
-import sqlite3
+import pymysql
 
 ####################################
 # Funzione di Connessione
 ####################################
 def get_connection():
-    return sqlite3.connect('database.db')
+    return pymysql.connect(
+        host="junction.proxy.rlwy.net",
+        port=14718,
+        user="root",
+        password="GoHrUNytXgoikyAkbwYQpYLnfuQVQdBM",
+        database="railway"
+    )
 
 ####################################
 # GESTIONE SETTORI
@@ -24,10 +30,10 @@ def inserisci_settore(nome):
     conn = get_connection()
     c = conn.cursor()
     try:
-        c.execute("INSERT INTO settori (nome) VALUES (?)", (nome.strip(),))
+        c.execute("INSERT INTO settori (nome) VALUES (%s)", (nome.strip(),))
         conn.commit()
         st.success(f"Settore '{nome}' inserito con successo!")
-    except sqlite3.IntegrityError:
+    except pymysql.IntegrityError:
         st.error(f"Settore '{nome}' già esistente.")
     conn.close()
 
@@ -35,10 +41,10 @@ def modifica_settore(settore_id, nuovo_nome):
     conn = get_connection()
     c = conn.cursor()
     try:
-        c.execute("UPDATE settori SET nome = ? WHERE id = ?", (nuovo_nome.strip(), settore_id))
+        c.execute("UPDATE settori SET nome = %s WHERE id = %s", (nuovo_nome.strip(), settore_id))
         conn.commit()
         st.success(f"Settore aggiornato a '{nuovo_nome}'!")
-    except sqlite3.IntegrityError:
+    except pymysql.IntegrityError:
         st.error(f"Settore '{nuovo_nome}' già esistente.")
     conn.close()
 
@@ -46,10 +52,10 @@ def elimina_settore(settore_id):
     conn = get_connection()
     c = conn.cursor()
     try:
-        c.execute("DELETE FROM settori WHERE id = ?", (settore_id,))
+        c.execute("DELETE FROM settori WHERE id = %s", (settore_id,))
         conn.commit()
         st.success("Settore eliminato con successo!")
-    except sqlite3.IntegrityError as e:
+    except pymysql.IntegrityError as e:
         st.error(f"Errore nell'eliminazione del settore: {e}")
     conn.close()
 
@@ -68,10 +74,10 @@ def inserisci_pm(nome):
     conn = get_connection()
     c = conn.cursor()
     try:
-        c.execute("INSERT INTO project_managers (nome) VALUES (?)", (nome.strip(),))
+        c.execute("INSERT INTO project_managers (nome) VALUES (%s)", (nome.strip(),))
         conn.commit()
         st.success(f"Project Manager '{nome}' inserito con successo!")
-    except sqlite3.IntegrityError:
+    except pymysql.IntegrityError:
         st.error(f"Project Manager '{nome}' già esistente.")
     conn.close()
 
@@ -79,10 +85,10 @@ def modifica_pm(pm_id, nuovo_nome):
     conn = get_connection()
     c = conn.cursor()
     try:
-        c.execute("UPDATE project_managers SET nome = ? WHERE id = ?", (nuovo_nome.strip(), pm_id))
+        c.execute("UPDATE project_managers SET nome = %s WHERE id = %s", (nuovo_nome.strip(), pm_id))
         conn.commit()
         st.success(f"Project Manager aggiornato a '{nuovo_nome}'!")
-    except sqlite3.IntegrityError:
+    except pymysql.IntegrityError:
         st.error(f"Project Manager '{nuovo_nome}' già esistente.")
     conn.close()
 
@@ -90,10 +96,10 @@ def elimina_pm(pm_id):
     conn = get_connection()
     c = conn.cursor()
     try:
-        c.execute("DELETE FROM project_managers WHERE id = ?", (pm_id,))
+        c.execute("DELETE FROM project_managers WHERE id = %s", (pm_id,))
         conn.commit()
         st.success("Project Manager eliminato con successo!")
-    except sqlite3.IntegrityError as e:
+    except pymysql.IntegrityError as e:
         st.error(f"Errore nell'eliminazione del PM: {e}")
     conn.close()
 
@@ -112,10 +118,10 @@ def inserisci_recruiter(nome):
     conn = get_connection()
     c = conn.cursor()
     try:
-        c.execute("INSERT INTO recruiters (nome) VALUES (?)", (nome.strip(),))
+        c.execute("INSERT INTO recruiters (nome) VALUES (%s)", (nome.strip(),))
         conn.commit()
         st.success(f"Recruiter '{nome}' inserito con successo!")
-    except sqlite3.IntegrityError:
+    except pymysql.IntegrityError:
         st.error(f"Recruiter '{nome}' già esistente.")
     conn.close()
 
@@ -123,10 +129,10 @@ def modifica_recruiter(rec_id, nuovo_nome):
     conn = get_connection()
     c = conn.cursor()
     try:
-        c.execute("UPDATE recruiters SET nome = ? WHERE id = ?", (nuovo_nome.strip(), rec_id))
+        c.execute("UPDATE recruiters SET nome = %s WHERE id = %s", (nuovo_nome.strip(), rec_id))
         conn.commit()
         st.success(f"Recruiter aggiornato a '{nuovo_nome}'!")
-    except sqlite3.IntegrityError:
+    except pymysql.IntegrityError:
         st.error(f"Recruiter '{nuovo_nome}' già esistente.")
     conn.close()
 
@@ -134,10 +140,10 @@ def elimina_recruiter(rec_id):
     conn = get_connection()
     c = conn.cursor()
     try:
-        c.execute("DELETE FROM recruiters WHERE id = ?", (rec_id,))
+        c.execute("DELETE FROM recruiters WHERE id = %s", (rec_id,))
         conn.commit()
         st.success("Recruiter eliminato con successo!")
-    except sqlite3.IntegrityError as e:
+    except pymysql.IntegrityError as e:
         st.error(f"Errore nell'eliminazione del Recruiter: {e}")
     conn.close()
 
@@ -155,22 +161,18 @@ def carica_capacity_recruiter():
                IFNULL(rc.capacity_max, 5) AS capacity_max
         FROM recruiters r
         LEFT JOIN recruiter_capacity rc ON r.id = rc.recruiter_id
-        ORDER BY r.nome ASC
+        ORDER BY r.nome
     ''')
     rows = c.fetchall()
     conn.close()
     return rows
 
 def aggiorna_capacity_recruiter(recruiter_id, nuova_capacity):
-    """
-    Aggiorna (o inserisce) la capacity_max per uno specifico recruiter_id.
-    """
     conn = get_connection()
     c = conn.cursor()
-    c.execute("UPDATE recruiter_capacity SET capacity_max = ? WHERE recruiter_id = ?", (nuova_capacity, recruiter_id))
+    c.execute("UPDATE recruiter_capacity SET capacity_max = %s WHERE recruiter_id = %s", (nuova_capacity, recruiter_id))
     if c.rowcount == 0:
-        # se non esisteva una riga, la inseriamo
-        c.execute("INSERT INTO recruiter_capacity (recruiter_id, capacity_max) VALUES (?, ?)", (recruiter_id, nuova_capacity))
+        c.execute("INSERT INTO recruiter_capacity (recruiter_id, capacity_max) VALUES (%s, %s)", (recruiter_id, nuova_capacity))
     conn.commit()
     conn.close()
 
@@ -188,7 +190,6 @@ tab1, tab2, tab3, tab4 = st.tabs(["Settori", "Project Managers", "Recruiters", "
 with tab1:
     st.subheader("Gestione Settori")
 
-    # Aggiungi nuovo settore
     with st.form("form_inserisci_settore"):
         nuovo_settore = st.text_input("Nome nuovo Settore")
         sub_settore = st.form_submit_button("Aggiungi Settore")
@@ -228,7 +229,6 @@ with tab1:
 with tab2:
     st.subheader("Gestione Project Managers")
 
-    # Aggiungi PM
     with st.form("form_inserisci_pm"):
         nuovo_pm = st.text_input("Nome nuovo Project Manager")
         sub_pm = st.form_submit_button("Aggiungi Project Manager")
@@ -268,7 +268,6 @@ with tab2:
 with tab3:
     st.subheader("Gestione Recruiters")
 
-    # Aggiungi Recruiter
     with st.form("form_inserisci_recruiter"):
         nuovo_rec = st.text_input("Nome nuovo Recruiter")
         sub_rec = st.form_submit_button("Aggiungi Recruiter")
@@ -314,10 +313,9 @@ with tab4:
     else:
         for rec_id, rec_nome, cap_max in rows:
             with st.expander(f"Recruiter: {rec_nome} (ID: {rec_id}) - Capacità attuale: {cap_max}"):
-                # Creiamo un form per aggiornare la capacità
                 with st.form(f"form_capacita_{rec_id}"):
-                    nuova_capacity = st.number_input(f"Nuova capacità per {rec_nome}", 
-                                                     min_value=1, max_value=999, 
+                    nuova_capacity = st.number_input(f"Nuova capacità per {rec_nome}",
+                                                     min_value=1, max_value=999,
                                                      value=int(cap_max), step=1)
                     btn_update = st.form_submit_button("Aggiorna Capacità")
                     if btn_update:
