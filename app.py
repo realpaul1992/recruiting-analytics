@@ -9,6 +9,7 @@ import shutil
 import os
 import matplotlib.pyplot as plt  # <--- Import Matplotlib
 
+
 #######################################
 # FUNZIONI DI ACCESSO AL DB (MySQL)
 #######################################
@@ -26,6 +27,7 @@ def get_connection():
         database="railway"
     )
 
+
 def carica_settori():
     conn = get_connection()
     c = conn.cursor()
@@ -33,6 +35,7 @@ def carica_settori():
     rows = c.fetchall()
     conn.close()
     return rows
+
 
 def carica_project_managers():
     conn = get_connection()
@@ -42,6 +45,7 @@ def carica_project_managers():
     conn.close()
     return rows
 
+
 def carica_recruiters():
     conn = get_connection()
     c = conn.cursor()
@@ -49,6 +53,7 @@ def carica_recruiters():
     rows = c.fetchall()
     conn.close()
     return rows
+
 
 def inserisci_dati(cliente, settore_id, pm_id, rec_id, data_inizio):
     """
@@ -96,7 +101,10 @@ def inserisci_dati(cliente, settore_id, pm_id, rec_id, data_inizio):
     ))
     conn.commit()
     conn.close()
+
+    # Esegui backup (csv)
     backup_database()
+
 
 def carica_dati_completo():
     """
@@ -136,40 +144,113 @@ def carica_dati_completo():
 
     df = pd.DataFrame(rows, columns=columns)
     
-    # === Esempio di Fix: convertiamo 'tempo_previsto' a numerico ===
+    # Esempio di fix: convertiamo 'tempo_previsto' a numerico
     if "tempo_previsto" in df.columns:
         df["tempo_previsto"] = pd.to_numeric(df["tempo_previsto"], errors="coerce")
         df["tempo_previsto"] = df["tempo_previsto"].fillna(0).astype(int)
-    # ==============================================================
     
     return df
 
-#######################################
-# GESTIONE BACKUP
-#######################################
-def backup_database(max_backups=5):
-    """
-    Con MySQL non possiamo copiare un file .db come in SQLite.
-    Mostriamo solo un messaggio informativo.
-    """
-    st.info("Backup su MySQL non implementato (nessun file database.db da copiare).")
 
-def check_weekly_backup():
-    """
-    Su MySQL non c'è un file locale da copiare.
-    Evitiamo l'implementazione.
-    """
-    pass
+#######################################
+# GESTIONE BACKUP in CSV (Esportazione + Ripristino)
+#######################################
 
-check_weekly_backup()
+def backup_database():
+    """
+    Esegue un "backup" esportando i dati di ciascuna tabella in un CSV
+    all’interno della cartella 'backup'.
+    """
+    backup_dir = "backup"
+    if not os.path.exists(backup_dir):
+        os.makedirs(backup_dir)
+
+    conn = get_connection()
+    c = conn.cursor()
+
+    # 1) Leggiamo l’elenco delle tabelle
+    c.execute("SHOW TABLES")
+    tables = c.fetchall()  # es. [('settori',), ('recruiters',), ...]
+
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    st.info("Inizio backup MySQL in CSV...")
+
+    for (table_name,) in tables:
+        backup_filename = f"backup_{timestamp}_{table_name}.csv"
+        backup_path = os.path.join(backup_dir, backup_filename)
+
+        # Query: SELECT * FROM <table_name>
+        c.execute(f"SELECT * FROM {table_name}")
+        rows = c.fetchall()
+        col_names = [desc[0] for desc in c.description]
+
+        df_table = pd.DataFrame(rows, columns=col_names)
+        df_table.to_csv(backup_path, index=False, encoding="utf-8")
+
+    conn.close()
+    st.success("Backup completato: file CSV creati in /backup.")
+
+
+def restore_from_csv(csv_file):
+    """
+    Esempio di ripristino da CSV singolo.
+    - Legge il nome tabella dal nome file (p.es. 'backup_20231022-120000_progetti.csv')
+    - Esegue TRUNCATE e poi INSERT su MySQL.
+    Attenzione: In un contesto reale potresti voler fare controlli, foreign keys, ecc.
+    """
+    filename = os.path.basename(csv_file.name)
+    # Esempio: backup_20231022-120000_progetti.csv => prendo 'progetti'
+    # Supponiamo che il nome tabella sia dopo l'ultimo underscore.
+    # Oppure potresti parsi l'intero pattern.
+    parts = filename.split("_")
+    if len(parts) < 3:
+        st.error("Impossibile determinare il nome della tabella dal file CSV.")
+        return
+    
+    table_name_with_ext = parts[-1]  # p.es 'progetti.csv'
+    # Rimuoviamo l'estensione .csv
+    table_name = table_name_with_ext.replace(".csv", "")
+
+    # Leggiamo i dati
+    df = pd.read_csv(csv_file)
+    st.info(f"Ripristino tabella '{table_name}' da CSV... (righe: {len(df)})")
+
+    # Connessione
+    conn = get_connection()
+    c = conn.cursor()
+
+    # TRUNCATE
+    try:
+        c.execute(f"TRUNCATE TABLE {table_name}")
+    except pymysql.Error as e:
+        st.error(f"Errore TRUNCATE {table_name}: {e}")
+        conn.close()
+        return
+    
+    # Costruiamo una query di insert con n col
+    col_names = df.columns.tolist()  # es. ['id', 'cliente', ...]
+    placeholders = ",".join(["%s"] * len(col_names))
+    col_list_str = ",".join(col_names)
+    insert_query = f"INSERT INTO {table_name} ({col_list_str}) VALUES ({placeholders})"
+
+    # Inseriamo riga per riga
+    try:
+        for row in df.itertuples(index=False, name=None):
+            # row è una tupla con i valori
+            c.execute(insert_query, row)
+        conn.commit()
+        st.success(f"Tabella '{table_name}' ripristinata con successo!")
+    except pymysql.Error as e:
+        st.error(f"Errore durante l'INSERT: {e}")
+        conn.rollback()
+    finally:
+        conn.close()
+
 
 #######################################
 # CAPACITA' PER RECRUITER
 #######################################
 def carica_recruiters_capacity():
-    """
-    Restituisce un DF con [sales_recruiter, capacity].
-    """
     conn = get_connection()
     c = conn.cursor()
     query = '''
@@ -185,13 +266,11 @@ def carica_recruiters_capacity():
     conn.close()
     return df_capacity
 
+
 #######################################
 # FUNZIONE PER CALCOLARE LEADERBOARD MENSILE
 #######################################
 def calcola_leaderboard_mensile(df, start_date, end_date):
-    """
-    Copia identica della funzione in SQLite, ma su df (DataFrame).
-    """
     df_temp = df.copy()
     df_temp['data_inizio_dt'] = pd.to_datetime(df_temp['data_inizio'], errors='coerce')
     df_temp['recensione_stelle'] = df_temp['recensione_stelle'].fillna(0).astype(int)
@@ -231,7 +310,6 @@ def calcola_leaderboard_mensile(df, start_date, end_date):
 
     leaderboard['tempo_medio'] = leaderboard['tempo_medio'].fillna(0)
     leaderboard['bonus_totale'] = leaderboard['bonus_totale'].fillna(0)
-
     leaderboard['punteggio'] = (
         leaderboard['completati'] * 10
         + leaderboard['bonus_totale']
@@ -246,9 +324,11 @@ def calcola_leaderboard_mensile(df, start_date, end_date):
         elif n >= 5:
             return "Bronze"
         return ""
+
     leaderboard['badge'] = leaderboard['completati'].apply(assegna_badge)
     leaderboard = leaderboard.sort_values('punteggio', ascending=False)
     return leaderboard
+
 
 #######################################
 # CONFIG E LAYOUT
@@ -264,6 +344,7 @@ st.title("Gestione Progetti di Recruiting")
 st.sidebar.title("Navigazione")
 scelta = st.sidebar.radio("Vai a", ["Inserisci Dati", "Dashboard", "Gestisci Opzioni"])
 
+
 #######################################
 # 1. INSERISCI DATI
 #######################################
@@ -276,7 +357,6 @@ if scelta == "Inserisci Dati":
         # Settore
         settori_nomi = [s[1] for s in settori_db]
         settore_sel = st.selectbox("Settore Cliente", settori_nomi)
-        # Otteniamo l'ID settore
         settore_id = None
         for s in settori_db:
             if s[1] == settore_sel:
@@ -323,6 +403,7 @@ if scelta == "Inserisci Dati":
             
             inserisci_dati(cliente.strip(), settore_id, pm_id, rec_id, data_inizio_sql)
             st.success("Progetto inserito con successo!")
+
 
 #######################################
 # 2. DASHBOARD
@@ -423,7 +504,7 @@ elif scelta == "Dashboard":
                 Calcoliamo la data di fine calcolata = data_inizio + tempo_previsto (giorni).
             """)
 
-            # Già in carica_dati_completo() abbiamo convertito tempo_previsto in numerico
+            # In carica_dati_completo() abbiamo convertito tempo_previsto in int
             df['data_inizio_dt'] = pd.to_datetime(df['data_inizio'], errors='coerce')
             df_ok = df[(df['tempo_previsto'].notna()) & (df['tempo_previsto'] > 0)]
             df_ok['fine_calcolata'] = pd.to_datetime(df_ok['data_inizio'], errors='coerce') + \
@@ -529,39 +610,41 @@ elif scelta == "Dashboard":
         # TAB 4: Backup
         ################################
         with tab4:
-            st.subheader("Gestione Backup")
+            st.subheader("Gestione Backup (Esportazione e Ripristino)")
+            
+            st.markdown("### Esporta Dati in CSV")
             if st.button("Esegui Backup Ora"):
                 backup_database()
 
             backup_dir = 'backup'
             if os.path.exists(backup_dir):
-                backup_files = sorted(
-                    [f for f in os.listdir(backup_dir) if f.endswith('.db')],
+                csv_files = sorted(
+                    [f for f in os.listdir(backup_dir) if f.endswith('.csv')],
                     key=lambda x: os.path.getmtime(os.path.join(backup_dir, x)),
                     reverse=True
                 )
-                if backup_files:
-                    for bf in backup_files:
+                if csv_files:
+                    st.write("Backup disponibili in CSV:")
+                    for bf in csv_files:
                         path_bf = os.path.join(backup_dir, bf)
                         with open(path_bf, 'rb') as f:
                             st.download_button(
                                 label=f"Scarica {bf}",
                                 data=f.read(),
                                 file_name=bf,
-                                mime='application/octet-stream'
+                                mime='text/csv'
                             )
                 else:
-                    st.info("Nessun backup disponibile.")
+                    st.info("Nessun file CSV di backup presente.")
             else:
-                st.info("La cartella di backup non esiste.")
+                st.info("La cartella 'backup' non esiste.")
 
             st.markdown("---")
-            st.write("Ripristina Backup:")
-            up_file = st.file_uploader("Carica un file .db per ripristinare", type=['db'])
-            if up_file:
-                if st.button("Ripristina DB"):
-                    st.error("Funzione di ripristino DB non supportata per MySQL.")
-                    # Se fosse un SQLite, faresti la copia del file .db
+            st.markdown("### Ripristina Dati da CSV")
+            up_file = st.file_uploader("Carica un CSV per ripristinare la relativa tabella", type=['csv'])
+            if up_file is not None:
+                if st.button("Ripristina DB da CSV"):
+                    restore_from_csv(up_file)
 
         ################################
         # TAB 5: Altre Info
@@ -686,6 +769,7 @@ elif scelta == "Dashboard":
                 - Silver = almeno 10  
                 - Gold   = almeno 20  
                 """)
+
 
 #######################################
 # 3. GESTISCI OPZIONI
