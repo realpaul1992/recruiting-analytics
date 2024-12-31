@@ -4,68 +4,48 @@ import pymysql
 
 def create_database_mysql():
     """
-    Crea le tabelle nel database MySQL su Railway replicando 
-    la struttura e i dati di create_db.py (SQLite).
-<<<<<<< HEAD
-    Usa il driver pymysql, che non richiede dipendenze di sistema
-    come 'pkg-config' o librerie di MySQL.
+    Crea le tabelle nel database MySQL su Railway,
+    replicando la struttura della vecchia create_db.py (SQLite).
+
+    In particolare, aggiunge:
+      - settori, project_managers, recruiters
+      - progetti (con TUTTI i campi, inclusi tempo_previsto e data_chiusura_prevista se vuoi)
+      - recruiter_capacity
+      - Popolazione di tabelle con dati iniziali (Retail, Estetico, ecc.)
     """
-    # Parametri di connessione MySQL (public host e port da Railway)
-    host = "junction.proxy.rlwy.net"  # Esempio di public host
-    port = 14718                      # Esempio di public port
-    user = "root"                     # Il tuo username
-    password = "GoHrUNytXgoikyAk..."  # La password
+
+    # Parametri di connessione (modifica con i tuoi valori)
+    host = "junction.proxy.rlwy.net"   
+    port = 14718                       
+    user = "root"                      
+    password = "GoHrUNytXgoikyAkbwYQpYLnfuQVQdBM"  
     db_name = "railway"
 
     try:
-        # Connessione a MySQL con pymysql
-=======
-    Usa il driver pymysql.
-    """
-    host = "junction.proxy.rlwy.net"   # Public host su Railway
-    port = 14718                       # Public port
-    user = "root"                      # Username indicato da Railway
-    password = "GoHrUNytXgoikyAkbwYQpYLnfuQVQdBM"  # Password effettiva
-    db_name = "railway"                # Nome DB, di solito "railway"
-
-    try:
->>>>>>> 1d2563ce (Aggiunto script create_db_mysql.py per la creazione tabelle su MySQL)
         conn = pymysql.connect(
             host=host,
+            port=port,
             user=user,
             password=password,
-            database=db_name,
-            port=port
+            database=db_name
         )
         c = conn.cursor()
 
-<<<<<<< HEAD
-        # ------------------------------------------------
+        #
         # 1) Tabelle di base
-        # ------------------------------------------------
-=======
-        # 1) Tabelle di base
->>>>>>> 1d2563ce (Aggiunto script create_db_mysql.py per la creazione tabelle su MySQL)
+        #
         c.execute('''
             CREATE TABLE IF NOT EXISTS settori (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 nome VARCHAR(255) NOT NULL UNIQUE
             )
         ''')
-<<<<<<< HEAD
-
-=======
->>>>>>> 1d2563ce (Aggiunto script create_db_mysql.py per la creazione tabelle su MySQL)
         c.execute('''
             CREATE TABLE IF NOT EXISTS project_managers (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 nome VARCHAR(255) NOT NULL UNIQUE
             )
         ''')
-<<<<<<< HEAD
-
-=======
->>>>>>> 1d2563ce (Aggiunto script create_db_mysql.py per la creazione tabelle su MySQL)
         c.execute('''
             CREATE TABLE IF NOT EXISTS recruiters (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -73,13 +53,11 @@ def create_database_mysql():
             )
         ''')
 
-<<<<<<< HEAD
-        # ------------------------------------------------
+        #
         # 2) Tabella progetti
-        # ------------------------------------------------
-=======
-        # 2) Tabella progetti
->>>>>>> 1d2563ce (Aggiunto script create_db_mysql.py per la creazione tabelle su MySQL)
+        #
+        # Basandoci su "create_db.py" e la colonna "tempo_previsto"
+        # Se vuoi anche "data_chiusura_prevista", inseriscila qui di seguito.
         c.execute('''
             CREATE TABLE IF NOT EXISTS progetti (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -93,19 +71,17 @@ def create_database_mysql():
                 tempo_totale INT,
                 recensione_stelle INT,
                 recensione_data VARCHAR(255),
+                tempo_previsto INT,  -- se presente nella tua app
+                data_chiusura_prevista VARCHAR(255), -- se lo desideri
                 FOREIGN KEY (settore_id) REFERENCES settori(id),
                 FOREIGN KEY (project_manager_id) REFERENCES project_managers(id),
                 FOREIGN KEY (sales_recruiter_id) REFERENCES recruiters(id)
             )
         ''')
 
-<<<<<<< HEAD
-        # ------------------------------------------------
+        #
         # 3) Tabella recruiter_capacity
-        # ------------------------------------------------
-=======
-        # 3) Tabella recruiter_capacity
->>>>>>> 1d2563ce (Aggiunto script create_db_mysql.py per la creazione tabelle su MySQL)
+        #
         c.execute('''
             CREATE TABLE IF NOT EXISTS recruiter_capacity (
                 recruiter_id INT PRIMARY KEY,
@@ -114,16 +90,17 @@ def create_database_mysql():
             )
         ''')
 
-<<<<<<< HEAD
-        # ------------------------------------------------
-        # 4) Popola tabelle con dati iniziali
-        # ------------------------------------------------
-=======
-        # 4) Popola tabelle con dati iniziali (solo se non già esistono)
->>>>>>> 1d2563ce (Aggiunto script create_db_mysql.py per la creazione tabelle su MySQL)
+        #
+        # 4) Popola tabelle con dati iniziali se vuote
+        #
         settori_iniziali = ["Retail", "Estetico", "Tecnologico", "Finanziario", "Altro"]
         project_managers_iniziali = ["Paolo Patelli"]
-        recruiters_iniziali = ["Paolo Carnevale", "Juan Sebastian", "Francesco Picaro", "Daniele Martignano"]
+        recruiters_iniziali = [
+            "Paolo Carnevale", 
+            "Juan Sebastian", 
+            "Francesco Picaro", 
+            "Daniele Martignano"
+        ]
 
         # Inserisci settori
         for settore in settori_iniziali:
@@ -151,13 +128,18 @@ def create_database_mysql():
         all_recs = c.fetchall()
         for (rec_id,) in all_recs:
             try:
-                c.execute("INSERT INTO recruiter_capacity (recruiter_id, capacity_max) VALUES (%s, 5)", (rec_id,))
+                c.execute(
+                    "INSERT INTO recruiter_capacity (recruiter_id, capacity_max) VALUES (%s, 5)",
+                    (rec_id,)
+                )
             except pymysql.IntegrityError:
                 pass
 
         conn.commit()
         conn.close()
+
         print("Database creato/aggiornato con successo su MySQL (Railway) con pymysql!")
+        print("(Tabelle: settori, project_managers, recruiters, progetti, recruiter_capacity)")
 
     except pymysql.Error as e:
         print(f"Errore di connessione MySQL: {e}")
