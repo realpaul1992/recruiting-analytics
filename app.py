@@ -57,7 +57,7 @@ def inserisci_dati(cliente, settore_id, pm_id, rec_id, data_inizio):
     conn = get_connection()
     c = conn.cursor()
 
-    # Valori di default (come in SQLite)
+    # Valori di default
     stato_progetto = None
     data_fine = None
     tempo_totale = None
@@ -135,6 +135,13 @@ def carica_dati_completo():
     conn.close()
 
     df = pd.DataFrame(rows, columns=columns)
+    
+    # === Esempio di Fix: convertiamo 'tempo_previsto' a numerico ===
+    if "tempo_previsto" in df.columns:
+        df["tempo_previsto"] = pd.to_numeric(df["tempo_previsto"], errors="coerce")
+        df["tempo_previsto"] = df["tempo_previsto"].fillna(0).astype(int)
+    # ==============================================================
+    
     return df
 
 #######################################
@@ -225,14 +232,12 @@ def calcola_leaderboard_mensile(df, start_date, end_date):
     leaderboard['tempo_medio'] = leaderboard['tempo_medio'].fillna(0)
     leaderboard['bonus_totale'] = leaderboard['bonus_totale'].fillna(0)
 
-    # punteggio
     leaderboard['punteggio'] = (
         leaderboard['completati'] * 10
         + leaderboard['bonus_totale']
         + leaderboard['tempo_medio'].apply(lambda x: max(0, 30 - x))
     )
 
-    # badge
     def assegna_badge(n):
         if n >= 20:
             return "Gold"
@@ -242,7 +247,6 @@ def calcola_leaderboard_mensile(df, start_date, end_date):
             return "Bronze"
         return ""
     leaderboard['badge'] = leaderboard['completati'].apply(assegna_badge)
-
     leaderboard = leaderboard.sort_values('punteggio', ascending=False)
     return leaderboard
 
@@ -272,17 +276,30 @@ if scelta == "Inserisci Dati":
         # Settore
         settori_nomi = [s[1] for s in settori_db]
         settore_sel = st.selectbox("Settore Cliente", settori_nomi)
-        settore_id = next(s[0] for s in settori_db if s[1] == settore_sel)
+        # Otteniamo l'ID settore
+        settore_id = None
+        for s in settori_db:
+            if s[1] == settore_sel:
+                settore_id = s[0]
+                break
         
         # Project Manager
         pm_nomi = [p[1] for p in pm_db]
         pm_sel = st.selectbox("Project Manager", pm_nomi)
-        pm_id = next(p[0] for p in pm_db if p[1] == pm_sel)
+        pm_id = None
+        for p in pm_db:
+            if p[1] == pm_sel:
+                pm_id = p[0]
+                break
         
         # Recruiter
         rec_nomi = [r[1] for r in rec_db]
         rec_sel = st.selectbox("Sales Recruiter", rec_nomi)
-        rec_id = next(r[0] for r in rec_db if r[1] == rec_sel)
+        rec_id = None
+        for r in rec_db:
+            if r[1] == rec_sel:
+                rec_id = r[0]
+                break
         
         data_inizio_str = st.text_input("Data di Inizio (GG/MM/AAAA)", 
                                         value="", 
@@ -317,7 +334,7 @@ elif scelta == "Dashboard":
     if df.empty:
         st.info("Nessun progetto disponibile nel DB.")
     else:
-        # Creiamo le Tab come in precedenza
+        # Creiamo le Tab
         tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
             "Panoramica",
             "Carico Proiettato / Previsione",
@@ -405,9 +422,10 @@ elif scelta == "Dashboard":
                 Escludiamo i progetti che hanno tempo_previsto=0 (non impostato).
                 Calcoliamo la data di fine calcolata = data_inizio + tempo_previsto (giorni).
             """)
-            
+
+            # Già in carica_dati_completo() abbiamo convertito tempo_previsto in numerico
             df['data_inizio_dt'] = pd.to_datetime(df['data_inizio'], errors='coerce')
-            df_ok = df[(df['tempo_previsto'].notna()) & (df['tempo_previsto']>0)]
+            df_ok = df[(df['tempo_previsto'].notna()) & (df['tempo_previsto'] > 0)]
             df_ok['fine_calcolata'] = pd.to_datetime(df_ok['data_inizio'], errors='coerce') + \
                                       pd.to_timedelta(df_ok['tempo_previsto'], unit='D')
 
@@ -542,16 +560,8 @@ elif scelta == "Dashboard":
             up_file = st.file_uploader("Carica un file .db per ripristinare", type=['db'])
             if up_file:
                 if st.button("Ripristina DB"):
-                    try:
-                        fname = f"uploaded_{datetime.now().strftime('%Y%m%d-%H%M%S')}.db"
-                        path_tmp = os.path.join('backup', fname)
-                        with open(path_tmp, 'wb') as f:
-                            f.write(up_file.getbuffer())
-                        shutil.copy(path_tmp, 'database.db')
-                        st.success("Backup ripristinato! Ricarica l'app.")
-                        st.experimental_rerun()
-                    except Exception as e:
-                        st.error(f"Errore ripristino: {e}")
+                    st.error("Funzione di ripristino DB non supportata per MySQL.")
+                    # Se fosse un SQLite, faresti la copia del file .db
 
         ################################
         # TAB 5: Altre Info
@@ -655,12 +665,11 @@ elif scelta == "Dashboard":
                 st.write("Classifica Mensile con punteggio e badge:")
                 st.dataframe(leaderboard_df)
 
-                # Grafico punteggio con Plotly
                 fig_leader = px.bar(
                     leaderboard_df,
                     x='sales_recruiter',
                     y='punteggio',
-                    color='badge',  # per vedere i diversi badge
+                    color='badge',
                     title='Leaderboard Mensile'
                 )
                 st.plotly_chart(fig_leader)
