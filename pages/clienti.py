@@ -2,7 +2,7 @@
 
 import streamlit as st
 import pandas as pd
-import sqlite3
+import pymysql
 from datetime import datetime
 
 # Se utils.py è fuori dalla cartella pages, facciamo:
@@ -12,14 +12,18 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils import format_date_display, parse_date
 
 # ===============================
-# Funzioni per Interagire con il Database
+# Funzioni per Interagire con il Database MySQL
 # ===============================
 
 def get_connection():
-    """Crea e restituisce una connessione al database SQLite."""
-    conn = sqlite3.connect('database.db')
-    conn.row_factory = sqlite3.Row  # Per accedere ai campi per nome
-    return conn
+    """Crea e restituisce una connessione MySQL."""
+    return pymysql.connect(
+        host="junction.proxy.rlwy.net",
+        port=14718,
+        user="root",
+        password="GoHrUNytXgoikyAkbwYQpYLnfuQVQdBM",
+        database="railway"
+    )
 
 def carica_settori_db():
     conn = get_connection()
@@ -70,12 +74,13 @@ def cerca_progetti(id_progetto=None, nome_cliente=None):
     """
     params = []
     if id_progetto:
-        query += " AND p.id = ?"
+        query += " AND p.id = %s"
         params.append(id_progetto)
     if nome_cliente:
-        query += " AND p.cliente LIKE ?"
+        query += " AND p.cliente LIKE %s"
         params.append(f"%{nome_cliente}%")
-    c.execute(query, params)
+
+    c.execute(query, tuple(params))
     risultati = c.fetchall()
     conn.close()
     return risultati
@@ -93,14 +98,9 @@ def aggiorna_progetto(
     recensione_data,
     tempo_previsto
 ):
-    """
-    Aggiorna i campi di un progetto esistente, inclusa la parte di recensioni
-    e il 'tempo_previsto'. Se data_fine è None, la cancelliamo (NULL).
-    """
     conn = get_connection()
     c = conn.cursor()
 
-    # Calcolo tempo_totale se entrambe le date ci sono
     if data_inizio and data_fine:
         tempo_totale = (data_fine - data_inizio).days
     else:
@@ -110,22 +110,23 @@ def aggiorna_progetto(
     data_fine_str   = data_fine.strftime('%Y-%m-%d') if data_fine else None
     recensione_data_str = recensione_data.strftime('%Y-%m-%d') if recensione_data else None
 
-    c.execute("""
+    query = """
         UPDATE progetti
         SET 
-            cliente = ?,
-            settore_id = ?,
-            project_manager_id = ?,
-            sales_recruiter_id = ?,
-            stato_progetto = ?,
-            data_inizio = ?,
-            data_fine = ?,
-            tempo_totale = ?,
-            recensione_stelle = ?,
-            recensione_data = ?,
-            tempo_previsto = ?
-        WHERE id = ?
-    """, (
+            cliente = %s,
+            settore_id = %s,
+            project_manager_id = %s,
+            sales_recruiter_id = %s,
+            stato_progetto = %s,
+            data_inizio = %s,
+            data_fine = %s,
+            tempo_totale = %s,
+            recensione_stelle = %s,
+            recensione_data = %s,
+            tempo_previsto = %s
+        WHERE id = %s
+    """
+    c.execute(query, (
         cliente,
         settore_id,
         project_manager_id,
@@ -143,12 +144,9 @@ def aggiorna_progetto(
     conn.close()
 
 def cancella_progetto(id_progetto):
-    """
-    Elimina il progetto con ID corrispondente dalla tabella 'progetti'.
-    """
     conn = get_connection()
     c = conn.cursor()
-    c.execute("DELETE FROM progetti WHERE id = ?", (id_progetto,))
+    c.execute("DELETE FROM progetti WHERE id = %s", (id_progetto,))
     conn.commit()
     conn.close()
 
@@ -158,8 +156,17 @@ def carica_dati_completo():
     ma includendo colonna tempo_previsto se presente.
     """
     conn = get_connection()
-    df = pd.read_sql_query("SELECT * FROM progetti", conn)
+    c = conn.cursor()
+    c.execute("SELECT * FROM progetti")
+    rows = c.fetchall()
     conn.close()
+
+    columns = [
+        'id','cliente','settore_id','project_manager_id','sales_recruiter_id',
+        'stato_progetto','data_inizio','data_fine','tempo_totale',
+        'recensione_stelle','recensione_data','tempo_previsto'
+    ]
+    df = pd.DataFrame(rows, columns=columns)
     return df
 
 # ======================================
@@ -203,12 +210,13 @@ if submit_cerca:
         id_progetto = int(id_progetto_str) if id_progetto_str.isdigit() else None
         risultati = cerca_progetti(id_progetto=id_progetto, nome_cliente=nome_cliente.strip() or None)
         if risultati:
-            df_risultati = pd.DataFrame(risultati, columns=[
+            columns = [
                 'id','cliente','settore_id','project_manager_id','sales_recruiter_id',
                 'stato_progetto','data_inizio','data_fine','tempo_totale',
                 'recensione_stelle','recensione_data','tempo_previsto'
-            ])
-            # Mappa ID -> nomi
+            ]
+            df_risultati = pd.DataFrame(risultati, columns=columns)
+
             df_risultati['settore'] = df_risultati['settore_id'].map(settori_dict)
             df_risultati['project_manager'] = df_risultati['project_manager_id'].map(project_managers_dict)
             df_risultati['sales_recruiter'] = df_risultati['sales_recruiter_id'].map(recruiters_dict)
@@ -240,19 +248,18 @@ if st.session_state.progetto_selezionato:
         st.error("Progetto non trovato. Forse è stato eliminato?")
         st.stop()
 
-    progetto = row_list[0]  # sqlite3.Row
+    progetto = row_list[0]  # tupla
 
     st.header("Aggiorna / Elimina Progetto")
 
-    # Nomi attuali
-    settore_attuale = settori_dict.get(progetto['settore_id'], None)
-    pm_attuale = project_managers_dict.get(progetto['project_manager_id'], None)
-    rec_attuale = recruiters_dict.get(progetto['sales_recruiter_id'], None)
+    settore_attuale = settori_dict.get(progetto[2], None)
+    pm_attuale = project_managers_dict.get(progetto[3], None)
+    rec_attuale = recruiters_dict.get(progetto[4], None)
 
     col_upd, col_del = st.columns([3,1])
     with col_upd:
         with st.form("form_aggiorna_progetto"):
-            cliente_agg = st.text_input("Nome Cliente", value=progetto['cliente'])
+            cliente_agg = st.text_input("Nome Cliente", value=progetto[1])
 
             # Settore
             settori_nomi = [s[1] for s in settori_db]
@@ -297,7 +304,7 @@ if st.session_state.progetto_selezionato:
             rec_id_agg = recruiters_dict_reverse.get(rec_scelto, None)
 
             # Stato
-            stato_attuale = progetto['stato_progetto'] if progetto['stato_progetto'] else STATI_PROGETTO[0]
+            stato_attuale = progetto[5] or STATI_PROGETTO[0]
             if stato_attuale not in STATI_PROGETTO:
                 stato_attuale = STATI_PROGETTO[0]
             stato_agg = st.selectbox(
@@ -308,8 +315,8 @@ if st.session_state.progetto_selezionato:
 
             st.write("**Lascia vuoto per cancellare la data.**")
 
-            data_inizio_existing = parse_date(progetto['data_inizio'])
-            data_fine_existing   = parse_date(progetto['data_fine'])
+            data_inizio_existing = parse_date(progetto[6])
+            data_fine_existing   = parse_date(progetto[7])
 
             data_inizio_str = data_inizio_existing.strftime('%d/%m/%Y') if data_inizio_existing else ""
             data_fine_str   = data_fine_existing.strftime('%d/%m/%Y') if data_fine_existing else ""
@@ -317,20 +324,20 @@ if st.session_state.progetto_selezionato:
             data_inizio_agg = st.text_input("Data Inizio (GG/MM/AAAA)", value=data_inizio_str)
             data_fine_agg   = st.text_input("Data Fine (GG/MM/AAAA)",  value=data_fine_str)
 
-            # Recensione
-            rec_stelle_attuale = progetto['recensione_stelle'] or 0
+            rec_stelle_attuale = progetto[9] or 0
             rec_stelle_agg = st.selectbox("Recensione (Stelle)", [0,1,2,3,4,5], index=rec_stelle_attuale)
 
-            rec_data_existing = parse_date(progetto['recensione_data'])
+            rec_data_existing = parse_date(progetto[10])
             if rec_stelle_agg > 0:
                 rec_data_val = rec_data_existing if rec_data_existing else datetime.today().date()
                 rec_data_input = st.date_input("Data Recensione", value=rec_data_val)
             else:
                 rec_data_input = None
 
-            # tempo_previsto
-            tempo_previsto_existing = progetto['tempo_previsto'] if progetto['tempo_previsto'] else 0
-            tempo_previsto_agg = st.number_input("Tempo Previsto (giorni)", value=int(tempo_previsto_existing), min_value=0)
+            tempo_previsto_existing = progetto[11] if progetto[11] else 0
+            tempo_previsto_agg = st.number_input("Tempo Previsto (giorni)",
+                                                 value=int(tempo_previsto_existing),
+                                                 min_value=0)
 
             sub_update = st.form_submit_button("Aggiorna Progetto")
 
@@ -353,7 +360,7 @@ if st.session_state.progetto_selezionato:
                         st.error("Data fine non valida (GG/MM/AAAA).")
                         st.stop()
                 else:
-                    data_fine_parsed = None  # Cancella la data di fine, imposta a NULL
+                    data_fine_parsed = None
 
                 if data_inizio_parsed and data_fine_parsed:
                     if data_fine_parsed < data_inizio_parsed:
@@ -364,7 +371,6 @@ if st.session_state.progetto_selezionato:
                     st.error("Se hai messo stelle>0, devi specificare la data recensione.")
                     st.stop()
 
-                # Check dizionari
                 if settore_id_agg is None:
                     st.error(f"Settore '{settore_scelto}' non esiste nei dizionari.")
                     st.stop()
@@ -376,19 +382,19 @@ if st.session_state.progetto_selezionato:
                     st.stop()
 
                 aggiorna_progetto(
-                    id_progetto= st.session_state.progetto_selezionato,
-                    cliente= cliente_agg.strip(),
-                    settore_id= settore_id_agg,
-                    project_manager_id= pm_id_agg,
-                    sales_recruiter_id= rec_id_agg,
-                    stato_progetto= stato_agg,
-                    data_inizio= data_inizio_parsed,
-                    data_fine= data_fine_parsed,
-                    recensione_stelle= rec_stelle_agg,
-                    recensione_data= rec_data_input,
-                    tempo_previsto= tempo_previsto_agg
+                    id_progetto=progetto[0],
+                    cliente=cliente_agg.strip(),
+                    settore_id=settore_id_agg,
+                    project_manager_id=pm_id_agg,
+                    sales_recruiter_id=rec_id_agg,
+                    stato_progetto=stato_agg,
+                    data_inizio=data_inizio_parsed,
+                    data_fine=data_fine_parsed,
+                    recensione_stelle=rec_stelle_agg,
+                    recensione_data=rec_data_input,
+                    tempo_previsto=tempo_previsto_agg
                 )
-                st.success(f"Progetto {st.session_state.progetto_selezionato} aggiornato con successo!")
+                st.success(f"Progetto {progetto[0]} aggiornato con successo!")
                 st.session_state.progetto_selezionato = None
 
     with col_del:
@@ -396,13 +402,10 @@ if st.session_state.progetto_selezionato:
         st.write("Eliminando il progetto, i dati spariranno definitivamente.")
         elimina_button = st.button("Elimina Progetto")
         if elimina_button:
-            cancella_progetto(st.session_state.progetto_selezionato)
-            st.success(f"Progetto ID {st.session_state.progetto_selezionato} eliminato con successo!")
+            cancella_progetto(progetto[0])
+            st.success(f"Progetto ID {progetto[0]} eliminato con successo!")
             st.session_state.progetto_selezionato = None
 
-# ======================================
-# Sezione "Tutti i Clienti Gestiti"
-# ======================================
 st.header("Tutti i Clienti Gestiti")
 
 if st.button("Mostra Tutti i Clienti"):
