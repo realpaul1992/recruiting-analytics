@@ -30,6 +30,7 @@ def carica_settori():
     c.execute("SELECT id, nome FROM settori ORDER BY nome ASC")
     rows = c.fetchall()
     conn.close()
+    st.write("Settori Caricati:", rows)  # Debug
     return rows
 
 def carica_project_managers():
@@ -38,6 +39,7 @@ def carica_project_managers():
     c.execute("SELECT id, nome FROM project_managers ORDER BY nome ASC")
     rows = c.fetchall()
     conn.close()
+    st.write("Project Managers Caricati:", rows)  # Debug
     return rows
 
 def carica_recruiters():
@@ -46,6 +48,7 @@ def carica_recruiters():
     c.execute("SELECT id, nome FROM recruiters ORDER BY nome ASC")
     rows = c.fetchall()
     conn.close()
+    st.write("Recruiters Caricati:", rows)  # Debug
     return rows
 
 def carica_recruiters_capacity():
@@ -112,6 +115,7 @@ def inserisci_dati(cliente, settore_id, pm_id, rec_id, data_inizio):
     conn.commit()
     conn.close()
 
+    st.success("Progetto inserito con successo!")
     # Esegui backup (ZIP)
     backup_database()
 
@@ -483,6 +487,7 @@ def admin_dashboard(df):
         st.write(f"Funzione recruiter_dashboard_personale definita correttamente per {recruiter_username}.")  # Debug
 
         df_recruiter = df[df['sales_recruiter'] == recruiter_username]
+        st.write(f"Dati Recruiter ({recruiter_username}):", df_recruiter)  # Debug
         
         if df_recruiter.empty:
             st.info("Nessun progetto assegnato a questo recruiter.")
@@ -679,7 +684,6 @@ if st.session_state['role'] == "admin":
                     data_inizio_sql = None
                 
                 inserisci_dati(cliente.strip(), settore_id, pm_id, rec_id, data_inizio_sql)
-                st.success("Progetto inserito con successo!")
 
     #######################################
     # 2. DASHBOARD (admin)
@@ -695,12 +699,14 @@ if st.session_state['role'] == "admin":
     # 3. GESTISCI OPZIONI (admin)
     #######################################
     elif scelta == "Gestisci Opzioni":
-        st.write("Gestione settori, PM, recruiters e capacity in manage_options.py")
-        st.markdown("### Nota")
+        st.subheader("Gestione Opzioni")
+        st.write("Gestione settori, Project Managers, Recruiters e Capacità")
         st.markdown("""
+        ### Nota
         La gestione delle opzioni (settori, Project Managers, Recruiters e Capacità) è gestita nel file `manage_options.py`.
         Assicurati di navigare a quella pagina per gestire le tue opzioni.
         """)
+        # Puoi aggiungere funzionalità specifiche qui o fornire link a un'altra pagina.
 
 elif st.session_state['role'] == "recruiter":
     scelta_recruiter = st.sidebar.radio("Vai a", ["Dashboard Personale"], key='recruiter_nav')
