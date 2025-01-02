@@ -671,84 +671,6 @@ elif scelta == "Dashboard":
             else:
                 st.info("Nessuna recensione a 5 stelle nell'anno selezionato.")
 
-            ################################
-            # Integrazione della Dashboard del Recruiter
-            ################################
-            st.markdown("---")
-            st.subheader("Dashboard Personale dei Recruiter")
-            st.write("Seleziona un recruiter per visualizzare la propria dashboard:")
-
-            # Recupera la lista unica dei recruiter
-            recruiters = df['sales_recruiter'].unique()
-
-            # Seleziona il recruiter
-            recruiter_sel = st.selectbox("Seleziona Recruiter", recruiters, key='recruiter_dashboard')
-
-            if st.button("Visualizza Dashboard Recruiter"):
-                with st.spinner(f"Caricamento della dashboard per {recruiter_sel}..."):
-                    # Filtra i dati per il recruiter selezionato
-                    df_recruiter = df[df['sales_recruiter'] == recruiter_sel]
-
-                    if df_recruiter.empty:
-                        st.info("Nessun progetto assegnato a questo recruiter.")
-                    else:
-                        # Metric: Bonus ricevuti
-                        df_recruiter['bonus'] = df_recruiter['recensione_stelle'].fillna(0).astype(int).apply(calcola_bonus)
-                        total_bonus = df_recruiter['bonus'].sum()
-                        st.metric(f"Bonus Totale di {recruiter_sel} (€)", total_bonus)
-
-                        # Metric: Tempo medio di chiusura totale
-                        df_completed = df_recruiter[df_recruiter['stato_progetto'] == 'Completato']
-                        average_closure_time = df_completed['tempo_totale'].mean() if not df_completed.empty else 0
-                        st.metric(f"Tempo Medio di Chiusura Totale di {recruiter_sel} (giorni)", round(average_closure_time, 2))
-
-                        # Metric: Numero di progetti attivi
-                        active_projects = df_recruiter[df_recruiter['stato_progetto'].isin(["In corso", "Bloccato"])].shape[0]
-                        st.metric(f"Numero di Progetti Attivi di {recruiter_sel}", active_projects)
-
-                        # Tempo medio di chiusura per settore
-                        average_closure_time_sector = df_completed.groupby('settore')['tempo_totale'].mean().reset_index()
-                        st.subheader(f"Tempo Medio di Chiusura per Settore di {recruiter_sel}")
-                        if not average_closure_time_sector.empty:
-                            fig_sector = px.bar(
-                                average_closure_time_sector,
-                                x='settore',
-                                y='tempo_totale',
-                                labels={'settore': 'Settore', 'tempo_totale': 'Giorni Medi'},
-                                title=f'Tempo Medio di Chiusura per Settore di {recruiter_sel}'
-                            )
-                            st.plotly_chart(fig_sector)
-                        else:
-                            st.info("Nessun progetto completato per calcolare il tempo medio per settore.")
-
-                        # Bonus ricevuti per cliente
-                        st.subheader(f"Bonus Ricevuti per Cliente di {recruiter_sel}")
-                        bonus_per_cliente = df_recruiter.groupby('cliente')['bonus'].sum().reset_index()
-                        fig_bonus_cliente = px.bar(
-                            bonus_per_cliente,
-                            x='cliente',
-                            y='bonus',
-                            labels={'cliente': 'Cliente', 'bonus': 'Bonus (€)'},
-                            title=f'Bonus per Cliente di {recruiter_sel}'
-                        )
-                        st.plotly_chart(fig_bonus_cliente)
-
-                        # Grafico Recensioni a 5 Stelle
-                        st.subheader(f"Recensioni a 5 Stelle di {recruiter_sel}")
-                        df_recruiter_5 = df_recruiter[df_recruiter['recensione_stelle'] == 5]
-                        if not df_recruiter_5.empty:
-                            rec_5_count = df_recruiter_5.groupby('cliente').size().reset_index(name='5_star_reviews')
-                            fig_rec_5 = px.bar(
-                                rec_5_count,
-                                x='cliente',
-                                y='5_star_reviews',
-                                labels={'cliente': 'Cliente', '5_star_reviews': 'Recensioni 5 Stelle'},
-                                title=f'Recensioni a 5 Stelle per Cliente di {recruiter_sel}'
-                            )
-                            st.plotly_chart(fig_rec_5)
-                        else:
-                            st.info("Nessuna recensione a 5 stelle per questo recruiter.")
-
         ################################
         # TAB 4: Backup
         ################################
@@ -784,12 +706,54 @@ elif scelta == "Dashboard":
         # TAB 5: Altre Info
         ################################
         with tab5:
-            st.subheader("Altre Info / Gamification e Strumenti")
+            st.subheader("Avvicinamento al Premio Annuale di 1000€")
             st.write("""
-            - Qui puoi inserire informazioni generali.
-            - Configurare invio email per over capacity.
-            - Aggiungere altre funzionalità.
+                Questo grafico mostra quanto ogni recruiter ha accumulato in bonus e quanto manca per raggiungere l'obiettivo annuale di 1000€.
             """)
+
+            # Calcola il bonus totale per ogni recruiter
+            df_bonus_totale = df.groupby('sales_recruiter')['recensione_stelle'].apply(lambda x: calcola_bonus(x.max())).reset_index()
+            df_bonus_totale['bonus_totale'] = df.groupby('sales_recruiter')['recensione_stelle'].apply(lambda x: sum([calcola_bonus(stella) for stella in x])).reset_index(drop=True)
+
+            # Calcola la percentuale verso il 1000€
+            df_bonus_totale['percentuale'] = (df_bonus_totale['bonus_totale'] / 1000) * 100
+            df_bonus_totale['percentuale'] = df_bonus_totale['percentuale'].apply(lambda x: min(x, 100))  # Limita al 100%
+
+            # Ordina per percentuale
+            df_bonus_totale = df_bonus_totale.sort_values(by='percentuale', ascending=False)
+
+            # Crea il grafico
+            fig_premio = px.bar(
+                df_bonus_totale,
+                y='sales_recruiter',
+                x='percentuale',
+                orientation='h',
+                labels={'percentuale': 'Percentuale verso 1000€', 'sales_recruiter': 'Recruiter'},
+                title='Avvicinamento al Premio Annuale di 1000€',
+                text=df_bonus_totale['percentuale'].apply(lambda x: f"{x:.1f}%")
+            )
+
+            # Aggiungi una linea verticale al 100%
+            fig_premio.add_shape(
+                type="line",
+                x0=100,
+                y0=-0.5,
+                x1=100,
+                y1=len(df_bonus_totale),
+                line=dict(color="Red", dash="dash"),
+            )
+
+            # Aggiorna layout per migliorare la leggibilità
+            fig_premio.update_layout(
+                yaxis=dict(categoryorder='total ascending'),
+                xaxis=dict(range=[0, 110]),
+                showlegend=False,
+                margin=dict(l=100, r=50, t=50, b=50)
+            )
+
+            fig_premio.update_traces(marker_color='skyblue')
+
+            st.plotly_chart(fig_premio, use_container_width=True)
 
         ################################
         # TAB 6: Classifica
@@ -909,9 +873,179 @@ elif scelta == "Dashboard":
                 plt.xticks(rotation=45, ha='right')
                 st.pyplot(fig3)
 
-    #######################################
-    # 3. GESTISCI OPZIONI
-    #######################################
+        ################################
+        # TAB 5: Altre Info
+        ################################
+        with tab5:
+            st.subheader("Avvicinamento al Premio Annuale di 1000€")
+            st.write("""
+                Questo grafico mostra quanto ogni recruiter ha accumulato in bonus e quanto manca per raggiungere l'obiettivo annuale di 1000€.
+            """)
+
+            # Calcola il bonus totale per ogni recruiter
+            df_bonus_totale = df.groupby('sales_recruiter')['recensione_stelle'].apply(lambda x: sum([calcola_bonus(stella) for stella in x])).reset_index(name='bonus_totale')
+
+            # Calcola la percentuale verso il 1000€
+            df_bonus_totale['percentuale'] = (df_bonus_totale['bonus_totale'] / 1000) * 100
+            df_bonus_totale['percentuale'] = df_bonus_totale['percentuale'].apply(lambda x: min(x, 100))  # Limita al 100%
+
+            # Ordina per percentuale
+            df_bonus_totale = df_bonus_totale.sort_values(by='percentuale', ascending=False)
+
+            # Crea il grafico
+            fig_premio = px.bar(
+                df_bonus_totale,
+                y='sales_recruiter',
+                x='percentuale',
+                orientation='h',
+                labels={'percentuale': 'Percentuale verso 1000€', 'sales_recruiter': 'Recruiter'},
+                title='Avvicinamento al Premio Annuale di 1000€',
+                text=df_bonus_totale['percentuale'].apply(lambda x: f"{x:.1f}%")
+            )
+
+            # Aggiungi una linea verticale al 100%
+            fig_premio.add_shape(
+                type="line",
+                x0=100,
+                y0=-0.5,
+                x1=100,
+                y1=len(df_bonus_totale),
+                line=dict(color="Red", dash="dash"),
+            )
+
+            # Aggiorna layout per migliorare la leggibilità
+            fig_premio.update_layout(
+                yaxis=dict(categoryorder='total ascending'),
+                xaxis=dict(range=[0, 110]),
+                showlegend=False,
+                margin=dict(l=100, r=50, t=50, b=50)
+            )
+
+            fig_premio.update_traces(marker_color='skyblue')
+
+            st.plotly_chart(fig_premio, use_container_width=True)
+
+        ################################
+        # TAB 6: Classifica
+        ################################
+        with tab6:
+            st.subheader("Classifica (Matplotlib)")
+
+            st.markdown("### Filtro per Anno")
+            anni_leader = sorted(df['data_inizio_dt'].dt.year.dropna().unique())
+            if len(anni_leader) == 0:
+                st.warning("Nessun dato disponibile per il leaderboard.")
+                st.stop()
+            # Converti gli anni in interi
+            anni_leader = [int(y) for y in anni_leader]
+            anno_leader = st.selectbox("Seleziona Anno", options=anni_leader, index=len(anni_leader)-1, key='leaderboard_anno')
+
+            # Filtra i dati per il leaderboard basato sull'anno selezionato
+            try:
+                start_date_leader = datetime(anno_leader, 1, 1)
+                end_date_leader = datetime(anno_leader, 12, 31)
+            except TypeError as e:
+                st.error(f"Errore nella selezione di Anno per il leaderboard: {e}")
+                st.stop()
+
+            df_leader_filtered = df[
+                (df['data_inizio_dt'] >= pd.Timestamp(start_date_leader)) &
+                (df['data_inizio_dt'] <= pd.Timestamp(end_date_leader))
+            ]
+
+            st.write(f"Anno in analisi: {anno_leader}")
+
+            leaderboard_df = calcola_leaderboard_mensile(df_leader_filtered, start_date_leader, end_date_leader)
+            if leaderboard_df.empty:
+                st.info("Nessun progetto completato in questo periodo.")
+            else:
+                st.write("Classifica Annuale con punteggio e badge:")
+                st.dataframe(leaderboard_df)
+
+                fig_leader = px.bar(
+                    leaderboard_df,
+                    x='sales_recruiter',
+                    y='punteggio',
+                    color='badge',
+                    title='Leaderboard Annuale'
+                )
+                st.plotly_chart(fig_leader)
+
+                st.markdown("""
+                **Formula Punteggio**  
+                - +10 punti ogni progetto completato  
+                - +bonus (300/500) da recensioni 4/5 stelle  
+                - +max(0, 30 - tempo_medio) per invertire la velocità  
+                """)
+                st.markdown("""
+                **Badge**  
+                - Bronze = almeno 5 completati  
+                - Silver = almeno 10  
+                - Gold   = almeno 20  
+                """)
+
+            ################################
+            # Grafici nella Classifica
+            ################################
+            st.subheader("Grafici della Classifica")
+
+            # (1) RECRUITER PIÙ VICINO AL PREMIO ANNUALE (5 STELLE)
+            st.markdown("**1) Recruiter più vicino al Premio Annuale (5 stelle)**")
+            df_premio_annuale = df_leader_filtered[df_leader_filtered['recensione_stelle'] == 5]
+            rec_5 = df_premio_annuale.groupby('sales_recruiter').size().reset_index(name='cinque_stelle')
+            rec_5 = rec_5.sort_values(by='cinque_stelle', ascending=False)
+            if rec_5.empty:
+                st.info("Nessuna 5 stelle nell'anno selezionato.")
+            else:
+                fig1, ax1 = plt.subplots(figsize=(6,4))
+                ax1.bar(rec_5['sales_recruiter'], rec_5['cinque_stelle'], color='blue')
+                ax1.set_title("N. Recensioni 5 stelle (anno selezionato)")
+                ax1.set_xlabel("Recruiter")
+                ax1.set_ylabel("Recensioni 5 stelle")
+                plt.xticks(rotation=45, ha='right')
+                st.pyplot(fig1)
+
+            # (2) RECRUITER PIÙ VELOCE (TEMPO MEDIO)
+            st.markdown("**2) Recruiter più veloce (Tempo Medio)**")
+            df_comp = df_leader_filtered[
+                (df_leader_filtered['stato_progetto'] == 'Completato') &
+                (df_leader_filtered['data_inizio_dt'] >= pd.Timestamp(start_date_leader)) &
+                (df_leader_filtered['data_inizio_dt'] <= pd.Timestamp(end_date_leader))
+            ].copy()
+            veloce = df_comp.groupby('sales_recruiter')['tempo_totale'].mean().reset_index()
+            veloce['tempo_totale'] = veloce['tempo_totale'].fillna(0)
+            veloce = veloce.sort_values(by='tempo_totale', ascending=True)
+            if veloce.empty:
+                st.info("Nessun progetto completato per calcolare la velocità.")
+            else:
+                fig2, ax2 = plt.subplots(figsize=(6,4))
+                ax2.bar(veloce['sales_recruiter'], veloce['tempo_totale'], color='green')
+                ax2.set_title("Tempo Medio (giorni) - Più basso = più veloce")
+                ax2.set_xlabel("Recruiter")
+                ax2.set_ylabel("Tempo Medio (giorni)")
+                plt.xticks(rotation=45, ha='right')
+                st.pyplot(fig2)
+
+            # (3) RECRUITER CON PIÙ BONUS
+            st.markdown("**3) Recruiter con più Bonus ottenuti** (4 stelle=300, 5 stelle=500)")
+            df_bonus = df_leader_filtered.copy()
+            df_bonus['bonus'] = df_bonus['recensione_stelle'].apply(calcola_bonus)
+            bonus_df = df_bonus.groupby('sales_recruiter')['bonus'].sum().reset_index()
+            bonus_df = bonus_df.sort_values(by='bonus', ascending=False)
+            if bonus_df.empty:
+                st.info("Nessun bonus calcolato.")
+            else:
+                fig3, ax3 = plt.subplots(figsize=(6,4))
+                ax3.bar(bonus_df['sales_recruiter'], bonus_df['bonus'], color='orange')
+                ax3.set_title("Bonus Totale Ottenuto")
+                ax3.set_xlabel("Recruiter")
+                ax3.set_ylabel("Bonus (€)")
+                plt.xticks(rotation=45, ha='right')
+                st.pyplot(fig3)
+
+#######################################
+# 3. GESTISCI OPZIONI
+#######################################
 elif scelta == "Gestisci Opzioni":
     st.write("Gestione settori, PM, recruiters e capacity in manage_options.py")
     st.markdown("### Nota")
