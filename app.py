@@ -330,6 +330,25 @@ def calcola_leaderboard_mensile(df, start_date, end_date):
     return leaderboard
 
 #######################################
+# UTILITIES PER FORMATTARE LE DATE
+#######################################
+def format_date_display(x):
+    """Formatta le date dal formato 'YYYY-MM-DD' a 'DD/MM/YYYY'."""
+    if not x:
+        return ""
+    try:
+        return datetime.strptime(x, '%Y-%m-%d').strftime('%d/%m/%Y')
+    except ValueError:
+        return x  # Se il formato non è corretto o è vuoto, lascio inalterato
+
+def parse_date(date_str):
+    """Converti una stringa di data in un oggetto datetime.date (assumendo formato 'YYYY-MM-DD')."""
+    try:
+        return datetime.strptime(date_str, '%Y-%m-%d').date()
+    except (ValueError, TypeError):
+        return None
+
+#######################################
 # CONFIG E LAYOUT
 #######################################
 STATI_PROGETTO = ["Completato", "In corso", "Bloccato"]
@@ -342,7 +361,6 @@ rec_db = carica_recruiters()
 st.title("Gestione Progetti di Recruiting")
 st.sidebar.title("Navigazione")
 scelta = st.sidebar.radio("Vai a", ["Inserisci Dati", "Dashboard", "Gestisci Opzioni"])
-
 
 #######################################
 # 1. INSERISCI DATI
@@ -403,7 +421,6 @@ if scelta == "Inserisci Dati":
             inserisci_dati(cliente.strip(), settore_id, pm_id, rec_id, data_inizio_sql)
             st.success("Progetto inserito con successo!")
 
-
 #######################################
 # 2. DASHBOARD
 #######################################
@@ -430,7 +447,22 @@ elif scelta == "Dashboard":
         with tab1:
             st.subheader("Tempo Medio Generale e per Recruiter/Settore")
 
-            df_comp = df[df['stato_progetto'] == 'Completato']
+            # Filtro per Mese e Anno
+            st.markdown("### Filtro per Mese e Anno")
+            anno_selezionato = st.selectbox("Seleziona Anno", options=sorted(df['data_inizio_dt'].dt.year.unique()), index=len(sorted(df['data_inizio_dt'].dt.year.unique()))-1)
+            mesi_disponibili = sorted(df[df['data_inizio_dt'].dt.year == anno_selezionato]['data_inizio_dt'].dt.month.unique())
+            mese_selezionato = st.selectbox("Seleziona Mese", options=mesi_disponibili, format_func=lambda x: datetime(1900, x, 1).strftime('%B'))
+            
+            # Filtra i dati in base al mese e anno selezionati
+            start_date = datetime(anno_selezionato, mese_selezionato, 1)
+            end_date = (start_date + pd.offsets.MonthEnd(1)).date()
+            df_filtered = df[
+                (df['data_inizio_dt'] >= pd.Timestamp(start_date)) &
+                (df['data_inizio_dt'] <= pd.Timestamp(end_date))
+            ]
+
+            # Tempo Medio Globale
+            df_comp = df_filtered[df_filtered['stato_progetto'] == 'Completato']
             tempo_medio_globale = df_comp['tempo_totale'].dropna().mean() or 0
             st.metric("Tempo Medio Globale (giorni)", round(tempo_medio_globale,2))
 
@@ -459,7 +491,7 @@ elif scelta == "Dashboard":
             st.plotly_chart(fig_sett)
 
             st.subheader("Progetti Attivi (In corso + Bloccato)")
-            df_attivi = df[df['stato_progetto'].isin(["In corso", "Bloccato"])]
+            df_attivi = df_filtered[df_filtered['stato_progetto'].isin(["In corso", "Bloccato"])]
             attivi_count = df_attivi.groupby('sales_recruiter').size().reset_index(name='Progetti Attivi')
             fig_attivi = px.bar(
                 attivi_count,
@@ -717,17 +749,23 @@ elif scelta == "Dashboard":
             # (4) LEADERBOARD MENSILE
             st.markdown("**4) Leaderboard Mensile**")
 
-            # Scegli data di riferimento
-            data_riferimento = st.date_input(
-                "Seleziona una data del mese da analizzare",
-                value=datetime.today()
-            )
-            mese_inizio = data_riferimento.replace(day=1)
-            mese_fine = (mese_inizio + pd.offsets.MonthEnd(1)).date()
+            # Filtro per Mese e Anno
+            st.markdown("### Filtro per Mese e Anno")
+            anno_leader = st.selectbox("Seleziona Anno", options=sorted(df['data_inizio_dt'].dt.year.unique()), index=len(sorted(df['data_inizio_dt'].dt.year.unique()))-1)
+            mesi_leader = sorted(df[df['data_inizio_dt'].dt.year == anno_leader]['data_inizio_dt'].dt.month.unique())
+            mese_leader = st.selectbox("Seleziona Mese", options=mesi_leader, format_func=lambda x: datetime(1900, x, 1).strftime('%B'))
+            
+            # Filtra i dati per il leaderboard
+            start_date_leader = datetime(anno_leader, mese_leader, 1)
+            end_date_leader = (start_date_leader + pd.offsets.MonthEnd(1)).date()
+            df_leader_filtered = df[
+                (df['data_inizio_dt'] >= pd.Timestamp(start_date_leader)) &
+                (df['data_inizio_dt'] <= pd.Timestamp(end_date_leader))
+            ]
 
-            st.write(f"Mese in analisi: {mese_inizio.strftime('%d/%m/%Y')} - {mese_fine.strftime('%d/%m/%Y')}")
+            st.write(f"Mese in analisi: {start_date_leader.strftime('%d/%m/%Y')} - {end_date_leader.strftime('%d/%m/%Y')}")
 
-            leaderboard_df = calcola_leaderboard_mensile(df, mese_inizio, mese_fine)
+            leaderboard_df = calcola_leaderboard_mensile(df_leader_filtered, start_date_leader, end_date_leader)
             if leaderboard_df.empty:
                 st.info("Nessun progetto completato in questo periodo.")
             else:
@@ -756,20 +794,17 @@ elif scelta == "Dashboard":
                 - Gold   = almeno 20  
                 """)
 
-#######################################
-# 3. GESTISCI OPZIONI
-#######################################
-elif scelta == "Gestisci Opzioni":
-    st.write("Gestione settori, PM, recruiters e capacity in manage_options.py")
-    st.markdown("### Nota")
-    st.markdown("""
-    La gestione delle opzioni (settori, Project Managers, Recruiters e Capacità) è gestita nel file `manage_options.py`.
-    Assicurati di navigare a quella pagina per gestire le tue opzioni.
-    """)
+    #######################################
+    # 3. GESTISCI OPZIONI
+    #######################################
+    elif scelta == "Gestisci Opzioni":
+        st.write("Gestione settori, PM, recruiters e capacity in manage_options.py")
+        st.markdown("### Nota")
+        st.markdown("""
+        La gestione delle opzioni (settori, Project Managers, Recruiters e Capacità) è gestita nel file `manage_options.py`.
+        Assicurati di navigare a quella pagina per gestire le tue opzioni.
+        """)
 
-# Nota: Se desideri integrare le funzionalità di gestione direttamente in `app.py`, dovresti incorporare il codice di `manage_options.py` qui.
-# Tuttavia, mantenere separate le funzionalità aiuta a mantenere il codice organizzato e manutenibile.
-
-#######################################
-# FINE DEL FILE app.py
-#######################################
+    #######################################
+    # FINE DEL FILE app.py
+    #######################################
