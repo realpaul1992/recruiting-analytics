@@ -3,10 +3,8 @@ import pandas as pd
 import pymysql
 from datetime import datetime, timedelta
 import plotly.express as px
-import matplotlib.pyplot as plt
 import os
 import zipfile
-from io import BytesIO
 
 #######################################
 # FUNZIONI DI ACCESSO AL DB (MySQL)
@@ -64,6 +62,7 @@ def carica_recruiters_capacity():
     rows = c.fetchall()
     df_capacity = pd.DataFrame(rows, columns=['sales_recruiter', 'capacity'])
     conn.close()
+    st.write("Capacità Recruiters:", df_capacity)  # Debug
     return df_capacity
 
 def inserisci_dati(cliente, settore_id, pm_id, rec_id, data_inizio):
@@ -162,6 +161,7 @@ def carica_dati_completo():
     df['data_inizio_dt'] = pd.to_datetime(df['data_inizio'], errors='coerce')
     df['recensione_data_dt'] = pd.to_datetime(df['recensione_data'], errors='coerce')
     
+    st.write("Dati Completi Caricati:", df.head())  # Debug
     return df
 
 #######################################
