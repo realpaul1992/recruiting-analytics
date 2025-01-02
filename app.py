@@ -371,7 +371,7 @@ def admin_dashboard(df):
 # In un ambiente di produzione, utilizza metodi di autenticazione sicuri
 user_credentials = {
     "admin": {"password": "adminpass", "role": "admin"},
-    "mario.rossi": {"password": "password1", "role": "recruiter"},
+    "Juan.Sebastian": {"password": "password1", "role": "recruiter"},
     "luca.bianchi": {"password": "password2", "role": "recruiter"},
     "giulia.verdi": {"password": "password3", "role": "recruiter"},
     # Aggiungi altri recruiter qui
