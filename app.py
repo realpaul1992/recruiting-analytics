@@ -7,7 +7,6 @@ import matplotlib.pyplot as plt
 import os
 import zipfile  # Import per gestire ZIP
 from io import BytesIO
-import urllib.parse
 
 #######################################
 # FUNZIONI DI ACCESSO AL DB (MySQL)
@@ -368,82 +367,139 @@ def parse_date(date_str):
         return None
 
 #######################################
-# CONFIG E LAYOUT
+# SISTEMA DI AUTENTICAZIONE
 #######################################
-STATI_PROGETTO = ["Completato", "In corso", "Bloccato"]
+# Definisci un dizionario di recruiter con username e password
+# In un ambiente di produzione, utilizza metodi di autenticazione sicuri
+recruiter_credentials = {
+    "mario.rossi": "password1",
+    "luca.bianchi": "password2",
+    "giulia.verdi": "password3"
+    # Aggiungi altri recruiter qui
+}
 
-# Carichiamo i riferimenti
-settori_db = carica_settori()
-pm_db = carica_project_managers()
-rec_db = carica_recruiters()
+def login():
+    st.sidebar.title("Login")
+    username = st.sidebar.text_input("Username")
+    password = st.sidebar.text_input("Password", type="password")
+    login_button = st.sidebar.button("Login")
 
-st.title("Gestione Progetti di Recruiting")
-st.sidebar.title("Navigazione")
-scelta = st.sidebar.radio("Vai a", ["Inserisci Dati", "Dashboard", "Gestisci Opzioni"])
+    if login_button:
+        if username in recruiter_credentials and recruiter_credentials[username] == password:
+            st.session_state['logged_in'] = True
+            st.session_state['username'] = username
+            st.sidebar.success("Login effettuato con successo!")
+            st.experimental_rerun()
+        else:
+            st.sidebar.error("Username o password errati.")
+
+def logout():
+    st.sidebar.button("Logout")
+    if 'logout' in st.session_state:
+        del st.session_state['logged_in']
+        del st.session_state['username']
+        st.experimental_rerun()
 
 #######################################
-# 1. INSERISCI DATI
+# GESTIONE LOGIN
 #######################################
-if scelta == "Inserisci Dati":
-    st.header("Inserimento Nuovo Progetto")
+if 'logged_in' not in st.session_state:
+    st.session_state['logged_in'] = False
+
+if not st.session_state['logged_in']:
+    login()
+    st.stop()
+
+#######################################
+# GESTIONE DASHBOARD PERSONALE
+#######################################
+def recruiter_dashboard_personale(recruiter_username, df):
+    df_recruiter = df[df['sales_recruiter'] == recruiter_username]
     
-    with st.form("form_inserimento_progetto"):
-        cliente = st.text_input("Nome Cliente")
-        
-        # Settore
-        settori_nomi = [s[1] for s in settori_db]
-        settore_sel = st.selectbox("Settore Cliente", settori_nomi)
-        settore_id = None
-        for s in settori_db:
-            if s[1] == settore_sel:
-                settore_id = s[0]
-                break
-        
-        # Project Manager
-        pm_nomi = [p[1] for p in pm_db]
-        pm_sel = st.selectbox("Project Manager", pm_nomi)
-        pm_id = None
-        for p in pm_db:
-            if p[1] == pm_sel:
-                pm_id = p[0]
-                break
-        
-        # Recruiter
-        rec_nomi = [r[1] for r in rec_db]
-        rec_sel = st.selectbox("Sales Recruiter", rec_nomi)
-        rec_id = None
-        for r in rec_db:
-            if r[1] == rec_sel:
-                rec_id = r[0]
-                break
-        
-        data_inizio_str = st.text_input("Data di Inizio (GG/MM/AAAA)", 
-                                        value="", 
-                                        placeholder="Lascia vuoto se non disponibile")
-
-        submitted = st.form_submit_button("Inserisci Progetto")
-        if submitted:
-            if not cliente.strip():
-                st.error("Il campo 'Nome Cliente' è obbligatorio!")
-                st.stop()
-            
-            if data_inizio_str.strip():
-                try:
-                    di = datetime.strptime(data_inizio_str.strip(), '%d/%m/%Y')
-                    data_inizio_sql = di.strftime('%Y-%m-%d')
-                except ValueError:
-                    st.error("Formato Data Inizio non valido. Usa GG/MM/AAAA.")
-                    st.stop()
-            else:
-                data_inizio_sql = None
-            
-            inserisci_dati(cliente.strip(), settore_id, pm_id, rec_id, data_inizio_sql)
-            st.success("Progetto inserito con successo!")
+    if df_recruiter.empty:
+        st.info("Nessun progetto assegnato a questo recruiter.")
+        return
+    
+    st.header(f"Dashboard di {recruiter_username}")
+    
+    # Metric: Bonus ricevuti
+    df_recruiter['bonus'] = df_recruiter['recensione_stelle'].fillna(0).astype(int).apply(calcola_bonus)
+    total_bonus = df_recruiter['bonus'].sum()
+    st.metric("Bonus Totale (€)", total_bonus)
+    
+    # Metric: Tempo medio di chiusura totale
+    df_completed = df_recruiter[df_recruiter['stato_progetto'] == 'Completato']
+    average_closure_time = df_completed['tempo_totale'].mean() if not df_completed.empty else 0
+    st.metric("Tempo Medio di Chiusura Totale (giorni)", round(average_closure_time, 2))
+    
+    # Metric: Numero di progetti attivi
+    active_projects = df_recruiter[df_recruiter['stato_progetto'].isin(["In corso", "Bloccato"])].shape[0]
+    st.metric("Numero di Progetti Attivi", active_projects)
+    
+    # Tempo medio di chiusura per settore
+    average_closure_time_sector = df_completed.groupby('settore')['tempo_totale'].mean().reset_index()
+    st.subheader("Tempo Medio di Chiusura per Settore")
+    if not average_closure_time_sector.empty:
+        fig_sector = px.bar(
+            average_closure_time_sector,
+            x='settore',
+            y='tempo_totale',
+            labels={'settore': 'Settore', 'tempo_totale': 'Giorni Medi'},
+            title='Tempo Medio di Chiusura per Settore'
+        )
+        st.plotly_chart(fig_sector)
+    else:
+        st.info("Nessun progetto completato per calcolare il tempo medio per settore.")
+    
+    # Grafico Bonus per Cliente
+    st.subheader("Bonus Ricevuti per Cliente")
+    bonus_per_cliente = df_recruiter.groupby('cliente')['bonus'].sum().reset_index()
+    fig_bonus_cliente = px.bar(
+        bonus_per_cliente,
+        x='cliente',
+        y='bonus',
+        labels={'cliente': 'Cliente', 'bonus': 'Bonus (€)'},
+        title='Bonus per Cliente'
+    )
+    st.plotly_chart(fig_bonus_cliente)
+    
+    # Grafico Recensioni a 5 Stelle
+    st.subheader("Recensioni a 5 Stelle")
+    df_recruiter_5 = df_recruiter[df_recruiter['recensione_stelle'] == 5]
+    if not df_recruiter_5.empty:
+        rec_5_count = df_recruiter_5.groupby('cliente').size().reset_index(name='5_star_reviews')
+        fig_rec_5 = px.bar(
+            rec_5_count,
+            x='cliente',
+            y='5_star_reviews',
+            labels={'cliente': 'Cliente', '5_star_reviews': 'Recensioni 5 Stelle'},
+            title='Recensioni a 5 Stelle per Cliente'
+        )
+        st.plotly_chart(fig_rec_5)
+    else:
+        st.info("Nessuna recensione a 5 stelle per questo recruiter.")
+    
+    # Grafico Avvicinamento al Premio Annuale di 1000€
+    st.subheader("Avvicinamento al Premio Annuale di 1000€")
+    bonus_rimanente = max(0, 1000 - total_bonus)
+    fig_premio = px.bar(
+        x=["Bonus Attuale", "Bonus Mancante"],
+        y=[total_bonus, bonus_rimanente],
+        labels={'x': 'Categoria', 'y': '€'},
+        title='Avvicinamento al Premio Annuale di 1000€',
+        text=[total_bonus, bonus_rimanente]
+    )
+    fig_premio.update_traces(textposition='auto', marker_color=['green', 'red'])
+    st.plotly_chart(fig_premio)
+    
+    # Tabella dei Progetti Assegnati
+    st.subheader("Progetti Assegnati")
+    st.dataframe(df_recruiter[['cliente', 'settore', 'stato_progetto', 'data_inizio', 'recensione_stelle', 'bonus']])
 
 #######################################
-# 2. DASHBOARD
+# MAIN DASHBOARD
 #######################################
-elif scelta == "Dashboard":
+def main_dashboard():
     st.header("Dashboard di Controllo")
     df = carica_dati_completo()
     
@@ -456,7 +512,7 @@ elif scelta == "Dashboard":
             "Carico Proiettato / Previsione",
             "Bonus e Premi",
             "Backup",
-            "Altre Info",
+            "Dashboard Personale",
             "Classifica"
         ])
 
@@ -671,84 +727,6 @@ elif scelta == "Dashboard":
             else:
                 st.info("Nessuna recensione a 5 stelle nell'anno selezionato.")
 
-            ################################
-            # Integrazione della Dashboard del Recruiter
-            ################################
-            st.markdown("---")
-            st.subheader("Dashboard Personale dei Recruiter")
-            st.write("Seleziona un recruiter per visualizzare la propria dashboard:")
-
-            # Recupera la lista unica dei recruiter
-            recruiters = df['sales_recruiter'].unique()
-
-            # Seleziona il recruiter
-            recruiter_sel = st.selectbox("Seleziona Recruiter", recruiters, key='recruiter_dashboard')
-
-            if st.button("Visualizza Dashboard Recruiter"):
-                with st.spinner(f"Caricamento della dashboard per {recruiter_sel}..."):
-                    # Filtra i dati per il recruiter selezionato
-                    df_recruiter = df[df['sales_recruiter'] == recruiter_sel]
-
-                    if df_recruiter.empty:
-                        st.info("Nessun progetto assegnato a questo recruiter.")
-                    else:
-                        # Metric: Bonus ricevuti
-                        df_recruiter['bonus'] = df_recruiter['recensione_stelle'].fillna(0).astype(int).apply(calcola_bonus)
-                        total_bonus = df_recruiter['bonus'].sum()
-                        st.metric(f"Bonus Totale di {recruiter_sel} (€)", total_bonus)
-
-                        # Metric: Tempo medio di chiusura totale
-                        df_completed = df_recruiter[df_recruiter['stato_progetto'] == 'Completato']
-                        average_closure_time = df_completed['tempo_totale'].mean() if not df_completed.empty else 0
-                        st.metric(f"Tempo Medio di Chiusura Totale di {recruiter_sel} (giorni)", round(average_closure_time, 2))
-
-                        # Metric: Numero di progetti attivi
-                        active_projects = df_recruiter[df_recruiter['stato_progetto'].isin(["In corso", "Bloccato"])].shape[0]
-                        st.metric(f"Numero di Progetti Attivi di {recruiter_sel}", active_projects)
-
-                        # Tempo medio di chiusura per settore
-                        average_closure_time_sector = df_completed.groupby('settore')['tempo_totale'].mean().reset_index()
-                        st.subheader(f"Tempo Medio di Chiusura per Settore di {recruiter_sel}")
-                        if not average_closure_time_sector.empty:
-                            fig_sector = px.bar(
-                                average_closure_time_sector,
-                                x='settore',
-                                y='tempo_totale',
-                                labels={'settore': 'Settore', 'tempo_totale': 'Giorni Medi'},
-                                title=f'Tempo Medio di Chiusura per Settore di {recruiter_sel}'
-                            )
-                            st.plotly_chart(fig_sector)
-                        else:
-                            st.info("Nessun progetto completato per calcolare il tempo medio per settore.")
-
-                        # Bonus ricevuti per cliente
-                        st.subheader(f"Bonus Ricevuti per Cliente di {recruiter_sel}")
-                        bonus_per_cliente = df_recruiter.groupby('cliente')['bonus'].sum().reset_index()
-                        fig_bonus_cliente = px.bar(
-                            bonus_per_cliente,
-                            x='cliente',
-                            y='bonus',
-                            labels={'cliente': 'Cliente', 'bonus': 'Bonus (€)'},
-                            title=f'Bonus per Cliente di {recruiter_sel}'
-                        )
-                        st.plotly_chart(fig_bonus_cliente)
-
-                        # Grafico Recensioni a 5 Stelle
-                        st.subheader(f"Recensioni a 5 Stelle di {recruiter_sel}")
-                        df_recruiter_5 = df_recruiter[df_recruiter['recensione_stelle'] == 5]
-                        if not df_recruiter_5.empty:
-                            rec_5_count = df_recruiter_5.groupby('cliente').size().reset_index(name='5_star_reviews')
-                            fig_rec_5 = px.bar(
-                                rec_5_count,
-                                x='cliente',
-                                y='5_star_reviews',
-                                labels={'cliente': 'Cliente', '5_star_reviews': 'Recensioni 5 Stelle'},
-                                title=f'Recensioni a 5 Stelle per Cliente di {recruiter_sel}'
-                            )
-                            st.plotly_chart(fig_rec_5)
-                        else:
-                            st.info("Nessuna recensione a 5 stelle per questo recruiter.")
-
         ################################
         # TAB 4: Backup
         ################################
@@ -781,15 +759,14 @@ elif scelta == "Dashboard":
                         restore_from_zip(uploaded_zip)
 
         ################################
-        # TAB 5: Altre Info
+        # TAB 5: Dashboard Personale
         ################################
         with tab5:
-            st.subheader("Altre Info / Gamification e Strumenti")
-            st.write("""
-            - Qui puoi inserire informazioni generali.
-            - Configurare invio email per over capacity.
-            - Aggiungere altre funzionalità.
-            """)
+            st.subheader("Dashboard Personale")
+            st.write("Visualizza la tua dashboard personale qui sotto:")
+
+            recruiter_username = st.session_state['username']
+            recruiter_dashboard_personale(recruiter_username, df)
 
         ################################
         # TAB 6: Classifica
@@ -909,9 +886,83 @@ elif scelta == "Dashboard":
                 plt.xticks(rotation=45, ha='right')
                 st.pyplot(fig3)
 
-    #######################################
-    # 3. GESTISCI OPZIONI
-    #######################################
+#######################################
+# MAIN APP
+#######################################
+
+# Config e layout
+st.title("Gestione Progetti di Recruiting")
+st.sidebar.title("Navigazione")
+scelta = st.sidebar.radio("Vai a", ["Inserisci Dati", "Dashboard", "Gestisci Opzioni"])
+
+#######################################
+# 1. INSERISCI DATI
+#######################################
+if scelta == "Inserisci Dati":
+    st.header("Inserimento Nuovo Progetto")
+    
+    with st.form("form_inserimento_progetto"):
+        cliente = st.text_input("Nome Cliente")
+        
+        # Settore
+        settori_nomi = [s[1] for s in settori_db]
+        settore_sel = st.selectbox("Settore Cliente", settori_nomi)
+        settore_id = None
+        for s in settori_db:
+            if s[1] == settore_sel:
+                settore_id = s[0]
+                break
+        
+        # Project Manager
+        pm_nomi = [p[1] for p in pm_db]
+        pm_sel = st.selectbox("Project Manager", pm_nomi)
+        pm_id = None
+        for p in pm_db:
+            if p[1] == pm_sel:
+                pm_id = p[0]
+                break
+        
+        # Recruiter
+        rec_nomi = [r[1] for r in rec_db]
+        rec_sel = st.selectbox("Sales Recruiter", rec_nomi)
+        rec_id = None
+        for r in rec_db:
+            if r[1] == rec_sel:
+                rec_id = r[0]
+                break
+        
+        data_inizio_str = st.text_input("Data di Inizio (GG/MM/AAAA)", 
+                                        value="", 
+                                        placeholder="Lascia vuoto se non disponibile")
+
+        submitted = st.form_submit_button("Inserisci Progetto")
+        if submitted:
+            if not cliente.strip():
+                st.error("Il campo 'Nome Cliente' è obbligatorio!")
+                st.stop()
+            
+            if data_inizio_str.strip():
+                try:
+                    di = datetime.strptime(data_inizio_str.strip(), '%d/%m/%Y')
+                    data_inizio_sql = di.strftime('%Y-%m-%d')
+                except ValueError:
+                    st.error("Formato Data Inizio non valido. Usa GG/MM/AAAA.")
+                    st.stop()
+            else:
+                data_inizio_sql = None
+            
+            inserisci_dati(cliente.strip(), settore_id, pm_id, rec_id, data_inizio_sql)
+            st.success("Progetto inserito con successo!")
+
+#######################################
+# 2. DASHBOARD
+#######################################
+elif scelta == "Dashboard":
+    main_dashboard()
+
+#######################################
+# 3. GESTISCI OPZIONI
+#######################################
 elif scelta == "Gestisci Opzioni":
     st.write("Gestione settori, PM, recruiters e capacity in manage_options.py")
     st.markdown("### Nota")
@@ -919,3 +970,12 @@ elif scelta == "Gestisci Opzioni":
     La gestione delle opzioni (settori, Project Managers, Recruiters e Capacità) è gestita nel file `manage_options.py`.
     Assicurati di navigare a quella pagina per gestire le tue opzioni.
     """)
+
+#######################################
+# GESTIONE LOGOUT
+#######################################
+st.sidebar.markdown("---")
+if st.sidebar.button("Logout"):
+    st.session_state['logged_in'] = False
+    st.session_state['username'] = ""
+    st.experimental_rerun()
