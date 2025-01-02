@@ -1,12 +1,10 @@
-# app.py
-
 import streamlit as st
 import pandas as pd
 import pymysql
 from datetime import datetime, timedelta
 import plotly.express as px
-import os
 import matplotlib.pyplot as plt
+import os
 import zipfile  # Import per gestire ZIP
 from io import BytesIO
 import urllib.parse
@@ -14,6 +12,7 @@ import urllib.parse
 #######################################
 # FUNZIONI DI ACCESSO AL DB (MySQL)
 #######################################
+
 def get_connection():
     """
     Ritorna una connessione MySQL usando pymysql.
@@ -673,23 +672,82 @@ elif scelta == "Dashboard":
                 st.info("Nessuna recensione a 5 stelle nell'anno selezionato.")
 
             ################################
-            # Link ai dashboard personalizzati
+            # Integrazione della Dashboard del Recruiter
             ################################
             st.markdown("---")
-            st.subheader("Dashboard Personali dei Recruiter")
-            st.write("Clicca sul nome del recruiter per vedere la propria dashboard:")
+            st.subheader("Dashboard Personale dei Recruiter")
+            st.write("Seleziona un recruiter per visualizzare la propria dashboard:")
 
             # Recupera la lista unica dei recruiter
             recruiters = df['sales_recruiter'].unique()
 
-            # Genera i link relativi per ogni recruiter
-            for rec in recruiters:
-                # Codifica il nome del recruiter per l'URL
-                rec_encoded = urllib.parse.quote(rec)
-                # Nome della pagina senza spazi
-                page_name = "Recruiter_Dashboard"
-                link = f"/pages/{page_name}?recruiter_id={rec_encoded}"
-                st.markdown(f"- [{rec}]({link})")
+            # Seleziona il recruiter
+            recruiter_sel = st.selectbox("Seleziona Recruiter", recruiters, key='recruiter_dashboard')
+
+            if st.button("Visualizza Dashboard Recruiter"):
+                with st.spinner(f"Caricamento della dashboard per {recruiter_sel}..."):
+                    # Filtra i dati per il recruiter selezionato
+                    df_recruiter = df[df['sales_recruiter'] == recruiter_sel]
+
+                    if df_recruiter.empty:
+                        st.info("Nessun progetto assegnato a questo recruiter.")
+                    else:
+                        # Metric: Bonus ricevuti
+                        df_recruiter['bonus'] = df_recruiter['recensione_stelle'].fillna(0).astype(int).apply(calcola_bonus)
+                        total_bonus = df_recruiter['bonus'].sum()
+                        st.metric(f"Bonus Totale di {recruiter_sel} (€)", total_bonus)
+
+                        # Metric: Tempo medio di chiusura totale
+                        df_completed = df_recruiter[df_recruiter['stato_progetto'] == 'Completato']
+                        average_closure_time = df_completed['tempo_totale'].mean() if not df_completed.empty else 0
+                        st.metric(f"Tempo Medio di Chiusura Totale di {recruiter_sel} (giorni)", round(average_closure_time, 2))
+
+                        # Metric: Numero di progetti attivi
+                        active_projects = df_recruiter[df_recruiter['stato_progetto'].isin(["In corso", "Bloccato"])].shape[0]
+                        st.metric(f"Numero di Progetti Attivi di {recruiter_sel}", active_projects)
+
+                        # Tempo medio di chiusura per settore
+                        average_closure_time_sector = df_completed.groupby('settore')['tempo_totale'].mean().reset_index()
+                        st.subheader(f"Tempo Medio di Chiusura per Settore di {recruiter_sel}")
+                        if not average_closure_time_sector.empty:
+                            fig_sector = px.bar(
+                                average_closure_time_sector,
+                                x='settore',
+                                y='tempo_totale',
+                                labels={'settore': 'Settore', 'tempo_totale': 'Giorni Medi'},
+                                title=f'Tempo Medio di Chiusura per Settore di {recruiter_sel}'
+                            )
+                            st.plotly_chart(fig_sector)
+                        else:
+                            st.info("Nessun progetto completato per calcolare il tempo medio per settore.")
+
+                        # Bonus ricevuti per cliente
+                        st.subheader(f"Bonus Ricevuti per Cliente di {recruiter_sel}")
+                        bonus_per_cliente = df_recruiter.groupby('cliente')['bonus'].sum().reset_index()
+                        fig_bonus_cliente = px.bar(
+                            bonus_per_cliente,
+                            x='cliente',
+                            y='bonus',
+                            labels={'cliente': 'Cliente', 'bonus': 'Bonus (€)'},
+                            title=f'Bonus per Cliente di {recruiter_sel}'
+                        )
+                        st.plotly_chart(fig_bonus_cliente)
+
+                        # Grafico Recensioni a 5 Stelle
+                        st.subheader(f"Recensioni a 5 Stelle di {recruiter_sel}")
+                        df_recruiter_5 = df_recruiter[df_recruiter['recensione_stelle'] == 5]
+                        if not df_recruiter_5.empty:
+                            rec_5_count = df_recruiter_5.groupby('cliente').size().reset_index(name='5_star_reviews')
+                            fig_rec_5 = px.bar(
+                                rec_5_count,
+                                x='cliente',
+                                y='5_star_reviews',
+                                labels={'cliente': 'Cliente', '5_star_reviews': 'Recensioni 5 Stelle'},
+                                title=f'Recensioni a 5 Stelle per Cliente di {recruiter_sel}'
+                            )
+                            st.plotly_chart(fig_rec_5)
+                        else:
+                            st.info("Nessuna recensione a 5 stelle per questo recruiter.")
 
         ################################
         # TAB 4: Backup
@@ -728,9 +786,9 @@ elif scelta == "Dashboard":
         with tab5:
             st.subheader("Altre Info / Gamification e Strumenti")
             st.write("""
-            - Qui puoi mettere info generiche, 
-            - Over capacity email, 
-            - altre feature.
+            - Qui puoi inserire informazioni generali.
+            - Configurare invio email per over capacity.
+            - Aggiungere altre funzionalità.
             """)
 
         ################################
