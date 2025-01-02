@@ -140,7 +140,7 @@ def carica_dati_completo():
 
     df = pd.DataFrame(rows, columns=columns)
     
-    # Esempio di fix: convertiamo 'tempo_previsto' a numerico
+    # Convertiamo 'tempo_previsto' a numerico
     if "tempo_previsto" in df.columns:
         df["tempo_previsto"] = pd.to_numeric(df["tempo_previsto"], errors="coerce")
         df["tempo_previsto"] = df["tempo_previsto"].fillna(0).astype(int)
@@ -431,6 +431,9 @@ elif scelta == "Dashboard":
     if df.empty:
         st.info("Nessun progetto disponibile nel DB.")
     else:
+        # Assicurati che 'data_inizio_dt' sia datetime
+        df['data_inizio_dt'] = pd.to_datetime(df['data_inizio'], errors='coerce')
+
         # Creiamo le Tab
         tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
             "Panoramica",
@@ -450,8 +453,12 @@ elif scelta == "Dashboard":
             # Filtro per Mese e Anno
             st.markdown("### Filtro per Mese e Anno")
             anni_disponibili = sorted(df['data_inizio_dt'].dt.year.dropna().unique())
+            if len(anni_disponibili) == 0:
+                st.warning("Nessun dato disponibile per i filtri.")
+                st.stop()
             anno_selezionato = st.selectbox("Seleziona Anno", options=anni_disponibili, index=len(anni_disponibili)-1)
             mesi_disponibili = sorted(df[df['data_inizio_dt'].dt.year == anno_selezionato]['data_inizio_dt'].dt.month.unique())
+            mesi_nomi = [datetime(1900, m, 1).strftime('%B') for m in mesi_disponibili]
             mese_selezionato = st.selectbox("Seleziona Mese", options=mesi_disponibili, format_func=lambda x: datetime(1900, x, 1).strftime('%B'))
             
             # Filtra i dati in base al mese e anno selezionati
@@ -462,70 +469,73 @@ elif scelta == "Dashboard":
                 (df['data_inizio_dt'] <= pd.Timestamp(end_date))
             ]
 
-            # Tempo Medio Globale
-            df_comp = df_filtered[df_filtered['stato_progetto'] == 'Completato']
-            tempo_medio_globale = df_comp['tempo_totale'].dropna().mean() or 0
-            st.metric("Tempo Medio Globale (giorni)", round(tempo_medio_globale,2))
+            if df_filtered.empty:
+                st.info("Nessun dato disponibile per il periodo selezionato.")
+            else:
+                # Tempo Medio Globale
+                df_comp = df_filtered[df_filtered['stato_progetto'] == 'Completato']
+                tempo_medio_globale = df_comp['tempo_totale'].dropna().mean() or 0
+                st.metric("Tempo Medio Globale (giorni)", round(tempo_medio_globale,2))
 
-            # Tempo medio per recruiter
-            rec_media = df_comp.groupby('sales_recruiter')['tempo_totale'].mean().reset_index()
-            rec_media['tempo_totale'] = rec_media['tempo_totale'].fillna(0).round(2)
-            fig_rec = px.bar(
-                rec_media,
-                x='sales_recruiter',
-                y='tempo_totale',
-                labels={'tempo_totale':'Giorni Medi'},
-                title='Tempo Medio di Chiusura per Recruiter'
-            )
-            st.plotly_chart(fig_rec)
+                # Tempo medio per recruiter
+                rec_media = df_comp.groupby('sales_recruiter')['tempo_totale'].mean().reset_index()
+                rec_media['tempo_totale'] = rec_media['tempo_totale'].fillna(0).round(2)
+                fig_rec = px.bar(
+                    rec_media,
+                    x='sales_recruiter',
+                    y='tempo_totale',
+                    labels={'tempo_totale':'Giorni Medi'},
+                    title='Tempo Medio di Chiusura per Recruiter'
+                )
+                st.plotly_chart(fig_rec)
 
-            # Tempo medio per settore
-            sett_media = df_comp.groupby('settore')['tempo_totale'].mean().reset_index()
-            sett_media['tempo_totale'] = sett_media['tempo_totale'].fillna(0).round(2)
-            fig_sett = px.bar(
-                sett_media,
-                x='settore',
-                y='tempo_totale',
-                labels={'tempo_totale':'Giorni Medi'},
-                title='Tempo Medio di Chiusura per Settore'
-            )
-            st.plotly_chart(fig_sett)
+                # Tempo medio per settore
+                sett_media = df_comp.groupby('settore')['tempo_totale'].mean().reset_index()
+                sett_media['tempo_totale'] = sett_media['tempo_totale'].fillna(0).round(2)
+                fig_sett = px.bar(
+                    sett_media,
+                    x='settore',
+                    y='tempo_totale',
+                    labels={'tempo_totale':'Giorni Medi'},
+                    title='Tempo Medio di Chiusura per Settore'
+                )
+                st.plotly_chart(fig_sett)
 
-            st.subheader("Progetti Attivi (In corso + Bloccato)")
-            df_attivi = df_filtered[df_filtered['stato_progetto'].isin(["In corso", "Bloccato"])]
-            attivi_count = df_attivi.groupby('sales_recruiter').size().reset_index(name='Progetti Attivi')
-            fig_attivi = px.bar(
-                attivi_count,
-                x='sales_recruiter',
-                y='Progetti Attivi',
-                title='Numero di Progetti Attivi per Recruiter'
-            )
-            st.plotly_chart(fig_attivi)
+                st.subheader("Progetti Attivi (In corso + Bloccato)")
+                df_attivi = df_filtered[df_filtered['stato_progetto'].isin(["In corso", "Bloccato"])]
+                attivi_count = df_attivi.groupby('sales_recruiter').size().reset_index(name='Progetti Attivi')
+                fig_attivi = px.bar(
+                    attivi_count,
+                    x='sales_recruiter',
+                    y='Progetti Attivi',
+                    title='Numero di Progetti Attivi per Recruiter'
+                )
+                st.plotly_chart(fig_attivi)
 
-            st.subheader("Capacità di Carico e Over Capacity")
-            df_capacity = carica_recruiters_capacity()
-            recruiters_unici = df['sales_recruiter'].unique()
-            cap_df = pd.DataFrame({'sales_recruiter': recruiters_unici})
-            cap_df = cap_df.merge(attivi_count, on='sales_recruiter', how='left').fillna(0)
-            cap_df = cap_df.merge(df_capacity, on='sales_recruiter', how='left').fillna(5)
-            cap_df['capacity'] = cap_df['capacity'].astype(int)
-            cap_df['Progetti Attivi'] = cap_df['Progetti Attivi'].astype(int)
-            cap_df['Capacità Disponibile'] = cap_df['capacity'] - cap_df['Progetti Attivi']
-            cap_df.loc[cap_df['Capacità Disponibile'] < 0, 'Capacità Disponibile'] = 0
+                st.subheader("Capacità di Carico e Over Capacity")
+                df_capacity = carica_recruiters_capacity()
+                recruiters_unici = df['sales_recruiter'].unique()
+                cap_df = pd.DataFrame({'sales_recruiter': recruiters_unici})
+                cap_df = cap_df.merge(attivi_count, on='sales_recruiter', how='left').fillna(0)
+                cap_df = cap_df.merge(df_capacity, on='sales_recruiter', how='left').fillna(5)
+                cap_df['capacity'] = cap_df['capacity'].astype(int)
+                cap_df['Progetti Attivi'] = cap_df['Progetti Attivi'].astype(int)
+                cap_df['Capacità Disponibile'] = cap_df['capacity'] - cap_df['Progetti Attivi']
+                cap_df.loc[cap_df['Capacità Disponibile'] < 0, 'Capacità Disponibile'] = 0
 
-            overcap = cap_df[cap_df['Capacità Disponibile'] == 0]
-            if not overcap.empty:
-                st.warning("Attenzione! I seguenti Recruiter sono a capacità 0:")
-                st.write(overcap[['sales_recruiter','Progetti Attivi','capacity','Capacità Disponibile']])
+                overcap = cap_df[cap_df['Capacità Disponibile'] == 0]
+                if not overcap.empty:
+                    st.warning("Attenzione! I seguenti Recruiter sono a capacità 0:")
+                    st.write(overcap[['sales_recruiter','Progetti Attivi','capacity','Capacità Disponibile']])
 
-            fig_carico = px.bar(
-                cap_df,
-                x='sales_recruiter',
-                y=['Progetti Attivi','Capacità Disponibile'],
-                barmode='group',
-                title='Capacità di Carico per Recruiter'
-            )
-            st.plotly_chart(fig_carico)
+                fig_carico = px.bar(
+                    cap_df,
+                    x='sales_recruiter',
+                    y=['Progetti Attivi','Capacità Disponibile'],
+                    barmode='group',
+                    title='Capacità di Carico per Recruiter'
+                )
+                st.plotly_chart(fig_carico)
 
         ################################
         # TAB 2: Carico Proiettato / Previsione
@@ -538,7 +548,6 @@ elif scelta == "Dashboard":
             """)
 
             # In carica_dati_completo() abbiamo convertito tempo_previsto in int
-            df['data_inizio_dt'] = pd.to_datetime(df['data_inizio'], errors='coerce')
             df_ok = df[(df['tempo_previsto'].notna()) & (df['tempo_previsto'] > 0)]
             df_ok['fine_calcolata'] = pd.to_datetime(df_ok['data_inizio'], errors='coerce') + \
                                       pd.to_timedelta(df_ok['tempo_previsto'], unit='D')
@@ -753,8 +762,14 @@ elif scelta == "Dashboard":
             st.markdown("**4) Leaderboard Mensile**")
             st.markdown("### Filtro per Mese e Anno")
             anni_leader = sorted(df['data_inizio_dt'].dt.year.dropna().unique())
+            if len(anni_leader) == 0:
+                st.warning("Nessun dato disponibile per il leaderboard.")
+                st.stop()
             anno_leader = st.selectbox("Seleziona Anno", options=anni_leader, index=len(anni_leader)-1)
             mesi_leader = sorted(df[df['data_inizio_dt'].dt.year == anno_leader]['data_inizio_dt'].dt.month.unique())
+            if len(mesi_leader) == 0:
+                st.warning("Nessun dato disponibile per il mese selezionato.")
+                st.stop()
             mese_leader = st.selectbox("Seleziona Mese", options=mesi_leader, format_func=lambda x: datetime(1900, x, 1).strftime('%B'))
             
             # Filtra i dati per il leaderboard
@@ -796,16 +811,16 @@ elif scelta == "Dashboard":
                 - Gold   = almeno 20  
                 """)
 
-    #######################################
-    # 3. GESTISCI OPZIONI
-    #######################################
-    elif scelta == "Gestisci Opzioni":
-        st.write("Gestione settori, PM, recruiters e capacity in manage_options.py")
-        st.markdown("### Nota")
-        st.markdown("""
-        La gestione delle opzioni (settori, Project Managers, Recruiters e Capacità) è gestita nel file `manage_options.py`.
-        Assicurati di navigare a quella pagina per gestire le tue opzioni.
-        """)
+#######################################
+# 3. GESTISCI OPZIONI
+#######################################
+elif scelta == "Gestisci Opzioni":
+    st.write("Gestione settori, PM, recruiters e capacity in manage_options.py")
+    st.markdown("### Nota")
+    st.markdown("""
+    La gestione delle opzioni (settori, Project Managers, Recruiters e Capacità) è gestita nel file `manage_options.py`.
+    Assicurati di navigare a quella pagina per gestire le tue opzioni.
+    """)
 
 #######################################
 # FINE DEL FILE app.py
