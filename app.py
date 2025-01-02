@@ -153,6 +153,23 @@ def carica_dati_completo():
     return df
 
 #######################################
+# DEFINIZIONE DELLA FUNZIONE calcola_bonus
+#######################################
+def calcola_bonus(stelle):
+    """
+    Calcola il bonus in base al numero di stelle della recensione.
+    - 4 stelle: 300€
+    - 5 stelle: 500€
+    - Altri valori: 0€
+    """
+    if stelle == 4:
+        return 300
+    elif stelle == 5:
+        return 500
+    else:
+        return 0
+
+#######################################
 # GESTIONE BACKUP in ZIP (Esportazione + Ripristino)
 #######################################
 
