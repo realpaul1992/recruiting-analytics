@@ -391,7 +391,7 @@ def login():
             st.session_state['username'] = username
             st.session_state['role'] = user_credentials[username]["role"]
             st.sidebar.success("Login effettuato con successo!")
-            st.experimental_rerun()
+            # Non usare st.experimental_rerun(), Streamlit ricarica automaticamente
         else:
             st.sidebar.error("Username o password errati.")
 
@@ -401,7 +401,7 @@ def logout():
             if key in st.session_state:
                 del st.session_state[key]
         st.sidebar.success("Sei stato disconnesso.")
-        st.experimental_rerun()
+        # Non usare st.experimental_rerun(), Streamlit ricarica automaticamente
 
 #######################################
 # GESTIONE LOGIN
@@ -997,9 +997,17 @@ def recruiter_dashboard_personale(recruiter_username, df):
 # Config e layout
 st.title("Gestione Progetti di Recruiting")
 st.sidebar.title("Navigazione")
-scelta = st.sidebar.radio("Vai a", ["Inserisci Dati", "Dashboard", "Gestisci Opzioni"])
 
-if scelta == "Inserisci Dati":
+# Definizione delle opzioni per la navigazione
+if st.session_state['role'] == "admin":
+    scelta = st.sidebar.radio("Vai a", ["Inserisci Dati", "Dashboard", "Gestisci Opzioni"])
+elif st.session_state['role'] == "recruiter":
+    scelta = st.sidebar.radio("Vai a", ["Dashboard Personale"])
+
+#######################################
+# 1. INSERISCI DATI (solo admin)
+#######################################
+if scelta == "Inserisci Dati" and st.session_state['role'] == "admin":
     st.header("Inserimento Nuovo Progetto")
     
     with st.form("form_inserimento_progetto"):
@@ -1055,28 +1063,30 @@ if scelta == "Inserisci Dati":
             inserisci_dati(cliente.strip(), settore_id, pm_id, rec_id, data_inizio_sql)
             st.success("Progetto inserito con successo!")
 
-elif scelta == "Dashboard":
-    if st.session_state['role'] == "admin":
-        main_dashboard()
-    else:
-        st.warning("Accesso non autorizzato. Questa sezione è riservata agli Amministratori.")
-
-elif scelta == "Gestisci Opzioni":
-    if st.session_state['role'] == "admin":
-        st.write("Gestione settori, PM, recruiters e capacity in manage_options.py")
-        st.markdown("### Nota")
-        st.markdown("""
-        La gestione delle opzioni (settori, Project Managers, Recruiters e Capacità) è gestita nel file `manage_options.py`.
-        Assicurati di navigare a quella pagina per gestire le tue opzioni.
-        """)
-    else:
-        st.warning("Accesso non autorizzato. Questa sezione è riservata agli Amministratori.")
+#######################################
+# 2. DASHBOARD (admin)
+#######################################
+elif scelta == "Dashboard" and st.session_state['role'] == "admin":
+    main_dashboard()
 
 #######################################
-# DASHBOARD PERSONALE PER RECRUITER
+# 3. GESTISCI OPZIONI (admin)
+#######################################
+elif scelta == "Gestisci Opzioni" and st.session_state['role'] == "admin":
+    st.write("Gestione settori, PM, recruiters e capacity in manage_options.py")
+    st.markdown("### Nota")
+    st.markdown("""
+    La gestione delle opzioni (settori, Project Managers, Recruiters e Capacità) è gestita nel file `manage_options.py`.
+    Assicurati di navigare a quella pagina per gestire le tue opzioni.
+    """)
+
+#######################################
+# DASHBOARD PERSONALE (recruiter)
 #######################################
 if st.session_state['role'] == "recruiter":
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("Dashboard Personale")
-    recruiter_username = st.session_state['username']
-    recruiter_dashboard_personale(recruiter_username, carica_dati_completo())
+    scelta_recruiter = st.sidebar.radio("Vai a", ["Dashboard Personale"])
+    if scelta_recruiter == "Dashboard Personale":
+        st.sidebar.markdown("---")
+        st.sidebar.subheader("Dashboard Personale")
+        recruiter_username = st.session_state['username']
+        recruiter_dashboard_personale(recruiter_username, carica_dati_completo())
