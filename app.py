@@ -451,12 +451,11 @@ elif scelta == "Dashboard":
         st.info("Nessun progetto disponibile nel DB.")
     else:
         # Creiamo le Tab
-        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        tab1, tab2, tab3, tab4, tab6 = st.tabs([
             "Panoramica",
             "Carico Proiettato / Previsione",
             "Bonus e Premi",
             "Backup",
-            "Altre Info",
             "Classifica"
         ])
 
@@ -703,59 +702,7 @@ elif scelta == "Dashboard":
                         restore_from_zip(uploaded_zip)
 
         ################################
-        # TAB 5: Altre Info
-        ################################
-        with tab5:
-            st.subheader("Avvicinamento al Premio Annuale di 1000€")
-            st.write("""
-                Questo grafico mostra quanto ogni recruiter ha accumulato in bonus e quanto manca per raggiungere l'obiettivo annuale di 1000€.
-            """)
-
-            # Calcola il bonus totale per ogni recruiter
-            df_bonus_totale = df.groupby('sales_recruiter')['recensione_stelle'].apply(lambda x: sum([calcola_bonus(stella) for stella in x])).reset_index(name='bonus_totale')
-
-            # Calcola la percentuale verso il 1000€
-            df_bonus_totale['percentuale'] = (df_bonus_totale['bonus_totale'] / 1000) * 100
-            df_bonus_totale['percentuale'] = df_bonus_totale['percentuale'].apply(lambda x: min(x, 100))  # Limita al 100%
-
-            # Ordina per percentuale
-            df_bonus_totale = df_bonus_totale.sort_values(by='percentuale', ascending=False)
-
-            # Crea il grafico
-            fig_premio = px.bar(
-                df_bonus_totale,
-                y='sales_recruiter',
-                x='percentuale',
-                orientation='h',
-                labels={'percentuale': 'Percentuale verso 1000€', 'sales_recruiter': 'Recruiter'},
-                title='Avvicinamento al Premio Annuale di 1000€',
-                text=df_bonus_totale['percentuale'].apply(lambda x: f"{x:.1f}%")
-            )
-
-            # Aggiungi una linea verticale al 100%
-            fig_premio.add_shape(
-                type="line",
-                x0=100,
-                y0=-0.5,
-                x1=100,
-                y1=len(df_bonus_totale),
-                line=dict(color="Red", dash="dash"),
-            )
-
-            # Aggiorna layout per migliorare la leggibilità
-            fig_premio.update_layout(
-                yaxis=dict(categoryorder='total ascending'),
-                xaxis=dict(range=[0, 110]),
-                showlegend=False,
-                margin=dict(l=100, r=50, t=50, b=50)
-            )
-
-            fig_premio.update_traces(marker_color='skyblue')
-
-            st.plotly_chart(fig_premio, use_container_width=True, key='premio_annual_chart')  # Chiave unica
-
-        ################################
-        # TAB 6: Classifica
+        # TAB 5: Classifica
         ################################
         with tab6:
             st.subheader("Classifica (Matplotlib)")
@@ -818,23 +765,56 @@ elif scelta == "Dashboard":
             ################################
             st.subheader("Grafici della Classifica")
 
-            # (1) RECRUITER PIÙ VICINO AL PREMIO ANNUALE (5 STELLE)
-            st.markdown("**1) Recruiter più vicino al Premio Annuale (5 stelle)**")
-            df_premio_annuale = df_leader_filtered[df_leader_filtered['recensione_stelle'] == 5]
-            rec_5 = df_premio_annuale.groupby('sales_recruiter').size().reset_index(name='cinque_stelle')
-            rec_5 = rec_5.sort_values(by='cinque_stelle', ascending=False)
-            if rec_5.empty:
-                st.info("Nessuna 5 stelle nell'anno selezionato.")
-            else:
-                fig1, ax1 = plt.subplots(figsize=(6,4))
-                ax1.bar(rec_5['sales_recruiter'], rec_5['cinque_stelle'], color='blue')
-                ax1.set_title("N. Recensioni 5 stelle (anno selezionato)")
-                ax1.set_xlabel("Recruiter")
-                ax1.set_ylabel("Recensioni 5 stelle")
-                plt.xticks(rotation=45, ha='right')
-                st.pyplot(fig1)
+            # **1) Avvicinamento al Premio Annuale di 1000€**
+            st.markdown("**1) Avvicinamento al Premio Annuale di 1000€**")
+            st.write("""
+                Questo grafico mostra quanto ogni recruiter ha accumulato in bonus e quanto manca per raggiungere l'obiettivo annuale di 1000€.
+            """)
 
-            # (2) RECRUITER PIÙ VELOCE (TEMPO MEDIO)
+            # Calcola il bonus totale per ogni recruiter
+            df_bonus_totale = df_leader_filtered.groupby('sales_recruiter')['recensione_stelle'].apply(lambda x: sum([calcola_bonus(stella) for stella in x])).reset_index(name='bonus_totale')
+
+            # Calcola la percentuale verso il 1000€
+            df_bonus_totale['percentuale'] = (df_bonus_totale['bonus_totale'] / 1000) * 100
+            df_bonus_totale['percentuale'] = df_bonus_totale['percentuale'].apply(lambda x: min(x, 100))  # Limita al 100%
+
+            # Ordina per percentuale
+            df_bonus_totale = df_bonus_totale.sort_values(by='percentuale', ascending=False)
+
+            # Crea il grafico
+            fig_premio = px.bar(
+                df_bonus_totale,
+                y='sales_recruiter',
+                x='percentuale',
+                orientation='h',
+                labels={'percentuale': 'Percentuale verso 1000€', 'sales_recruiter': 'Recruiter'},
+                title='Avvicinamento al Premio Annuale di 1000€',
+                text=df_bonus_totale['percentuale'].apply(lambda x: f"{x:.1f}%")
+            )
+
+            # Aggiungi una linea verticale al 100%
+            fig_premio.add_shape(
+                type="line",
+                x0=100,
+                y0=-0.5,
+                x1=100,
+                y1=len(df_bonus_totale),
+                line=dict(color="Red", dash="dash"),
+            )
+
+            # Aggiorna layout per migliorare la leggibilità
+            fig_premio.update_layout(
+                yaxis=dict(categoryorder='total ascending'),
+                xaxis=dict(range=[0, 110]),
+                showlegend=False,
+                margin=dict(l=100, r=50, t=50, b=50)
+            )
+
+            fig_premio.update_traces(marker_color='skyblue')
+
+            st.plotly_chart(fig_premio, use_container_width=True, key='premio_annual_chart')  # Chiave unica
+
+            # **2) Recruiter più veloce (Tempo Medio)**
             st.markdown("**2) Recruiter più veloce (Tempo Medio)**")
             df_comp = df_leader_filtered[
                 (df_leader_filtered['stato_progetto'] == 'Completato') &
@@ -855,7 +835,7 @@ elif scelta == "Dashboard":
                 plt.xticks(rotation=45, ha='right')
                 st.pyplot(fig2)
 
-            # (3) RECRUITER CON PIÙ BONUS
+            # **3) Recruiter con più Bonus ottenuti** (4 stelle=300, 5 stelle=500)
             st.markdown("**3) Recruiter con più Bonus ottenuti** (4 stelle=300, 5 stelle=500)")
             df_bonus = df_leader_filtered.copy()
             df_bonus['bonus'] = df_bonus['recensione_stelle'].apply(calcola_bonus)
