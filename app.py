@@ -688,7 +688,9 @@ elif scelta == "Dashboard":
                 for rec in recruiters:
                     # Codifica il nome del recruiter per l'URL
                     rec_encoded = urllib.parse.quote(rec)
-                    link = f"/pages/Recruiter%20Dashboard?recruiter_id={rec_encoded}"
+                    # Nome della pagina senza spazi
+                    page_name = "Recruiter_Dashboard"
+                    link = f"/pages/{page_name}?recruiter_id={rec_encoded}"
                     st.markdown(f"- [{rec}]({link})")
 
         ################################
@@ -863,13 +865,17 @@ elif scelta == "Dashboard":
                     plt.xticks(rotation=45, ha='right')
                     st.pyplot(fig3)
 
-    #######################################
-    # 3. GESTISCI OPZIONI
-    #######################################
-elif scelta == "Gestisci Opzioni":
-    st.write("Gestione settori, PM, recruiters e capacity in manage_options.py")
-    st.markdown("### Nota")
-    st.markdown("""
-    La gestione delle opzioni (settori, Project Managers, Recruiters e Capacità) è gestita nel file `manage_options.py`.
-    Assicurati di navigare a quella pagina per gestire le tue opzioni.
-    """)
+        #######################################
+        # 3. GESTISCI OPZIONI
+        #######################################
+    elif scelta == "Gestisci Opzioni":
+        st.write("Gestione settori, PM, recruiters e capacity in manage_options.py")
+        st.markdown("### Nota")
+        st.markdown("""
+        La gestione delle opzioni (settori, Project Managers, Recruiters e Capacità) è gestita nel file `manage_options.py`.
+        Assicurati di navigare a quella pagina per gestire le tue opzioni.
+        """)
+
+#######################################
+# FINE DEL FILE app.py
+#######################################
