@@ -559,7 +559,7 @@ elif scelta == "Dashboard":
                     y=['Progetti Attivi','Capacità Disponibile'],
                     barmode='group',
                     title='Capacità di Carico per Recruiter',
-                    color_discrete_sequence=['#636EFA', '#EF553B']
+                    color_discrete_sequence=['#636EFA', '#EF553B']  # Colori simili al grafico avvicinamento
                 )
                 st.plotly_chart(fig_carico, use_container_width=True)
 
@@ -641,9 +641,6 @@ elif scelta == "Dashboard":
                 st.error(f"Errore nella selezione di Anno per i bonus: {e}")
                 st.stop()
 
-            # Rimuovere il grafico attuale "Bonus dell'anno" poiché sarà sostituito
-            # e aggiungere il nuovo grafico "Avvicinamento al Premio Annuale di 1000€"
-
             # Calcola il bonus totale per ogni recruiter
             df_bonus_totale = df[
                 (df['recensione_data_dt'] >= pd.Timestamp(start_date_bonus)) & 
@@ -651,7 +648,7 @@ elif scelta == "Dashboard":
             ].copy()
             df_bonus_totale['bonus'] = df_bonus_totale['recensione_stelle'].fillna(0).astype(int).apply(calcola_bonus)
             bonus_rec = df_bonus_totale.groupby('sales_recruiter')['bonus'].sum().reset_index()
-
+            
             # Calcola il bonus totale per ogni recruiter
             df_bonus_totale = df_bonus_totale.groupby('sales_recruiter')['bonus'].sum().reset_index(name='bonus_totale')
 
@@ -794,7 +791,7 @@ elif scelta == "Dashboard":
                         "Gold": "gold",
                         "Silver": "silver",
                         "Bronze": "brown",
-                        ""
+                        "": "grey"  # Colore di default per badge vuoti
                     }
                 )
                 st.plotly_chart(fig_leader, use_container_width=True)
@@ -817,8 +814,6 @@ elif scelta == "Dashboard":
             ################################
             st.subheader("Grafici della Classifica")
 
-            # **1) Avvicinamento al Premio Annuale di 1000€** (Spostato nella scheda "Bonus e Premi")
-
             # **2) Recruiter più veloce (Tempo Medio)**
             st.markdown("**2) Recruiter più veloce (Tempo Medio)**")
             df_comp = df_leader_filtered[
@@ -833,7 +828,7 @@ elif scelta == "Dashboard":
                 st.info("Nessun progetto completato per calcolare la velocità.")
             else:
                 fig2, ax2 = plt.subplots(figsize=(8,6))
-                ax2.bar(veloce['sales_recruiter'], veloce['tempo_totale'], color='#636EFA')  # Usare un colore simile al grafico avvicinamento
+                ax2.bar(veloce['sales_recruiter'], veloce['tempo_totale'], color='#636EFA')  # Colore simile al grafico avvicinamento
                 ax2.set_title("Tempo Medio (giorni) - Più basso = più veloce")
                 ax2.set_xlabel("Recruiter")
                 ax2.set_ylabel("Tempo Medio (giorni)")
@@ -850,7 +845,7 @@ elif scelta == "Dashboard":
                 st.info("Nessun bonus calcolato.")
             else:
                 fig3, ax3 = plt.subplots(figsize=(8,6))
-                ax3.bar(bonus_df['sales_recruiter'], bonus_df['bonus'], color='#EF553B')  # Usare un colore simile al grafico avvicinamento
+                ax3.bar(bonus_df['sales_recruiter'], bonus_df['bonus'], color='#EF553B')  # Colore simile al grafico avvicinamento
                 ax3.set_title("Bonus Totale Ottenuto")
                 ax3.set_xlabel("Recruiter")
                 ax3.set_ylabel("Bonus (€)")
