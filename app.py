@@ -698,7 +698,7 @@ elif scelta == "Dashboard":
             # **Aggiornamento del Testo per "Premio Annuale (Recensioni a 5 stelle)"**
             st.subheader("Premio Annuale (Recensioni a 5 stelle)")
             st.markdown("""
-                Il premio annuale secondo le statistiche dovrebbe andare a [Nome del Recruiter] che ha ricevuto il maggior numero di recensioni a 5 stelle.
+                **Il premio annuale secondo le statistiche dovrebbe andare a [Nome del Recruiter] che ha ricevuto il maggior numero di recensioni a 5 stelle.**
             """)
 
             # Premiazione basata sulle recensioni a 5 stelle
