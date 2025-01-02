@@ -5,7 +5,6 @@ import pandas as pd
 import pymysql
 from datetime import datetime, timedelta
 import plotly.express as px
-import shutil
 import os
 import matplotlib.pyplot as plt
 import zipfile  # Import per gestire ZIP
@@ -106,7 +105,6 @@ def inserisci_dati(cliente, settore_id, pm_id, rec_id, data_inizio):
 def carica_dati_completo():
     """
     Carica i progetti uniti a settori, pm, recruiters, includendo 'tempo_previsto'.
-    (Stessa logica, ma query MySQL)
     """
     conn = get_connection()
     c = conn.cursor()
@@ -563,319 +561,303 @@ elif scelta == "Dashboard":
         ################################
         # TAB 2: Carico Proiettato / Previsione
         ################################
-            with tab2:
-                st.subheader("Progetti che si chiuderanno nei prossimi giorni/settimane")
+        with tab2:
+            st.subheader("Progetti che si chiuderanno nei prossimi giorni/settimane")
+            st.write("""
+                Escludiamo i progetti che hanno tempo_previsto=0 (non impostato).
+                Calcoliamo la data di fine calcolata = data_inizio + tempo_previsto (giorni).
+            """)
+
+            # In carica_dati_completo() abbiamo convertito tempo_previsto in int
+            df_ok = df[(df['tempo_previsto'].notna()) & (df['tempo_previsto'] > 0)]
+            df_ok['fine_calcolata'] = pd.to_datetime(df_ok['data_inizio'], errors='coerce') + \
+                                      pd.to_timedelta(df_ok['tempo_previsto'], unit='D')
+
+            df_incorso = df_ok[df_ok['stato_progetto'] == 'In corso'].copy()
+
+            st.subheader("Mostriamo i Progetti In Corso con tempo_previsto > 0")
+            st.dataframe(df_incorso[['cliente','stato_progetto','data_inizio','tempo_previsto','fine_calcolata','sales_recruiter']])
+
+            st.write("**Vuoi vedere quali progetti si chiuderanno entro X giorni da oggi?**")
+            orizzonte_giorni = st.number_input("Seleziona i giorni di orizzonte", value=14, min_value=1)
+            today = datetime.today()
+            df_prossimi = df_incorso[df_incorso['fine_calcolata'] <= (today + timedelta(days=orizzonte_giorni))]
+            if not df_prossimi.empty:
+                st.info(f"Progetti in corso che si chiuderanno entro {orizzonte_giorni} giorni:")
+                st.dataframe(df_prossimi[['cliente','sales_recruiter','fine_calcolata']])
+                
+                st.subheader("Recruiter che si libereranno in questo orizzonte")
+                closings = df_prossimi.groupby('sales_recruiter').size().reset_index(name='progetti_che_chiudono')
+                df_capacity = carica_recruiters_capacity()
+                df_attivi = df[df['stato_progetto'].isin(["In corso","Bloccato"])]
+                attivi_count = df_attivi.groupby('sales_recruiter').size().reset_index(name='Progetti Attivi')
+
+                rec_df = df_capacity.merge(attivi_count, on='sales_recruiter', how='left').fillna(0)
+                rec_df['Progetti Attivi'] = rec_df['Progetti Attivi'].astype(int)
+                rec_df = rec_df.merge(closings, on='sales_recruiter', how='left').fillna(0)
+                rec_df['progetti_che_chiudono'] = rec_df['progetti_che_chiudono'].astype(int)
+
+                rec_df['Nuovi Attivi'] = rec_df['Progetti Attivi'] - rec_df['progetti_che_chiudono']
+                rec_df.loc[rec_df['Nuovi Attivi'] < 0, 'Nuovi Attivi'] = 0
+                rec_df['Capacità Disponibile'] = rec_df['capacity'] - rec_df['Nuovi Attivi']
+                rec_df.loc[rec_df['Capacità Disponibile'] < 0, 'Capacità Disponibile'] = 0
+
+                st.dataframe(rec_df[['sales_recruiter','capacity','Progetti Attivi','progetti_che_chiudono','Nuovi Attivi','Capacità Disponibile']])
                 st.write("""
-                    Escludiamo i progetti che hanno tempo_previsto=0 (non impostato).
-                    Calcoliamo la data di fine calcolata = data_inizio + tempo_previsto (giorni).
+                    Da questa tabella vedi quanti progetti chiudono per ogni recruiter 
+                    entro l'orizzonte selezionato, 
+                    e di conseguenza la nuova 'Capacità Disponibile' calcolata.
                 """)
-
-                # In carica_dati_completo() abbiamo convertito tempo_previsto in int
-                df_ok = df[(df['tempo_previsto'].notna()) & (df['tempo_previsto'] > 0)]
-                df_ok['fine_calcolata'] = pd.to_datetime(df_ok['data_inizio'], errors='coerce') + \
-                                          pd.to_timedelta(df_ok['tempo_previsto'], unit='D')
-
-                df_incorso = df_ok[df_ok['stato_progetto'] == 'In corso'].copy()
-
-                st.subheader("Mostriamo i Progetti In Corso con tempo_previsto > 0")
-                st.dataframe(df_incorso[['cliente','stato_progetto','data_inizio','tempo_previsto','fine_calcolata','sales_recruiter']])
-
-                st.write("**Vuoi vedere quali progetti si chiuderanno entro X giorni da oggi?**")
-                orizzonte_giorni = st.number_input("Seleziona i giorni di orizzonte", value=14, min_value=1)
-                today = datetime.today()
-                df_prossimi = df_incorso[df_incorso['fine_calcolata'] <= (today + timedelta(days=orizzonte_giorni))]
-                if not df_prossimi.empty:
-                    st.info(f"Progetti in corso che si chiuderanno entro {orizzonte_giorni} giorni:")
-                    st.dataframe(df_prossimi[['cliente','sales_recruiter','fine_calcolata']])
-                    
-                    st.subheader("Recruiter che si libereranno in questo orizzonte")
-                    closings = df_prossimi.groupby('sales_recruiter').size().reset_index(name='progetti_che_chiudono')
-                    df_capacity = carica_recruiters_capacity()
-                    df_attivi = df[df['stato_progetto'].isin(["In corso","Bloccato"])]
-                    attivi_count = df_attivi.groupby('sales_recruiter').size().reset_index(name='Progetti Attivi')
-
-                    rec_df = df_capacity.merge(attivi_count, on='sales_recruiter', how='left').fillna(0)
-                    rec_df['Progetti Attivi'] = rec_df['Progetti Attivi'].astype(int)
-                    rec_df = rec_df.merge(closings, on='sales_recruiter', how='left').fillna(0)
-                    rec_df['progetti_che_chiudono'] = rec_df['progetti_che_chiudono'].astype(int)
-
-                    rec_df['Nuovi Attivi'] = rec_df['Progetti Attivi'] - rec_df['progetti_che_chiudono']
-                    rec_df.loc[rec_df['Nuovi Attivi'] < 0, 'Nuovi Attivi'] = 0
-                    rec_df['Capacità Disponibile'] = rec_df['capacity'] - rec_df['Nuovi Attivi']
-                    rec_df.loc[rec_df['Capacità Disponibile'] < 0, 'Capacità Disponibile'] = 0
-
-                    st.dataframe(rec_df[['sales_recruiter','capacity','Progetti Attivi','progetti_che_chiudono','Nuovi Attivi','Capacità Disponibile']])
-                    st.write("""
-                        Da questa tabella vedi quanti progetti chiudono per ogni recruiter 
-                        entro l'orizzonte selezionato, 
-                        e di conseguenza la nuova 'Capacità Disponibile' calcolata.
-                    """)
-                else:
-                    st.info("Nessun progetto in corso si chiuderà in questo orizzonte.")
+            else:
+                st.info("Nessun progetto in corso si chiuderà in questo orizzonte.")
 
         ################################
         # TAB 3: Bonus e Premi
         ################################
-            with tab3:
-                st.subheader("Bonus e Premi")
-                st.write("""
-                    Esempio: 4 stelle => 300€, 5 stelle => 500€.
-                """)
-                st.markdown("### Filtro per Anno")
-                anni_disponibili_bonus = sorted(df['data_inizio_dt'].dt.year.dropna().unique())
-                if len(anni_disponibili_bonus) == 0:
-                    st.warning("Nessun dato disponibile per il filtro dei bonus.")
-                    st.stop()
-                # Converti gli anni in interi
-                anni_disponibili_bonus = [int(y) for y in anni_disponibili_bonus]
-                anno_bonus = st.selectbox("Seleziona Anno", options=anni_disponibili_bonus, index=len(anni_disponibili_bonus)-1, key='bonus_anno')
-                
-                # Filtra i dati in base all'anno selezionato
-                try:
-                    start_date_bonus = datetime(anno_bonus, 1, 1)
-                    end_date_bonus = datetime(anno_bonus, 12, 31)
-                except TypeError as e:
-                    st.error(f"Errore nella selezione di Anno per i bonus: {e}")
-                    st.stop()
+        with tab3:
+            st.subheader("Bonus e Premi")
+            st.write("""
+                Esempio: 4 stelle => 300€, 5 stelle => 500€.
+            """)
+            st.markdown("### Filtro per Anno")
+            anni_disponibili_bonus = sorted(df['data_inizio_dt'].dt.year.dropna().unique())
+            if len(anni_disponibili_bonus) == 0:
+                st.warning("Nessun dato disponibile per il filtro dei bonus.")
+                st.stop()
+            # Converti gli anni in interi
+            anni_disponibili_bonus = [int(y) for y in anni_disponibili_bonus]
+            anno_bonus = st.selectbox("Seleziona Anno", options=anni_disponibili_bonus, index=len(anni_disponibili_bonus)-1, key='bonus_anno')
+            
+            # Filtra i dati in base all'anno selezionato
+            try:
+                start_date_bonus = datetime(anno_bonus, 1, 1)
+                end_date_bonus = datetime(anno_bonus, 12, 31)
+            except TypeError as e:
+                st.error(f"Errore nella selezione di Anno per i bonus: {e}")
+                st.stop()
 
-                # Verifica se 'recensione_data_dt' esiste
-                if 'recensione_data_dt' not in df.columns:
-                    st.error("La colonna 'recensione_data_dt' non esiste nel DataFrame.")
-                    st.stop()
+            # Verifica se 'recensione_data_dt' esiste
+            if 'recensione_data_dt' not in df.columns:
+                st.error("La colonna 'recensione_data_dt' non esiste nel DataFrame.")
+                st.stop()
 
-                df_mese = df[
-                    (df['recensione_data_dt'] >= pd.Timestamp(start_date_bonus)) & 
-                    (df['recensione_data_dt'] <= pd.Timestamp(end_date_bonus))
-                ]
+            df_mese = df[
+                (df['recensione_data_dt'] >= pd.Timestamp(start_date_bonus)) & 
+                (df['recensione_data_dt'] <= pd.Timestamp(end_date_bonus))
+            ]
 
-                st.write(f"Progetti con recensione in questo anno: {len(df_mese)}")
+            st.write(f"Progetti con recensione in questo anno: {len(df_mese)}")
 
-                df_mese['bonus'] = df_mese['recensione_stelle'].fillna(0).astype(int).apply(calcola_bonus)
-                bonus_rec = df_mese.groupby('sales_recruiter')['bonus'].sum().reset_index()
-                fig_bonus = px.bar(
-                    bonus_rec,
-                    x='sales_recruiter',
-                    y='bonus',
-                    labels={'bonus':'Bonus (€)'},
-                    title='Bonus dell\'Anno'
-                )
-                st.plotly_chart(fig_bonus)
+            df_mese['bonus'] = df_mese['recensione_stelle'].fillna(0).astype(int).apply(calcola_bonus)
+            bonus_rec = df_mese.groupby('sales_recruiter')['bonus'].sum().reset_index()
+            fig_bonus = px.bar(
+                bonus_rec,
+                x='sales_recruiter',
+                y='bonus',
+                labels={'bonus':'Bonus (€)'},
+                title='Bonus dell\'Anno'
+            )
+            st.plotly_chart(fig_bonus)
 
-                st.subheader("Premio Annuale (Recensioni a 5 stelle)")
-                df_premio_annuale = df_mese[df_mese['recensione_stelle'] == 5]
-                rec_5 = df_premio_annuale.groupby('sales_recruiter').size().reset_index(name='cinque_stelle')
-                if not rec_5.empty:
-                    max_num = rec_5['cinque_stelle'].max()
-                    vincitori = rec_5[rec_5['cinque_stelle'] == max_num]
-                    if len(vincitori) == 1:
-                        st.success(f"Il premio annuale va a {vincitori.iloc[0]['sales_recruiter']} con {max_num} recensioni 5 stelle!")
-                    else:
-                        st.success(f"Premio annuale condiviso tra: {', '.join(vincitori['sales_recruiter'])}, con {max_num} 5 stelle!")
+            st.subheader("Premio Annuale (Recensioni a 5 stelle)")
+            df_premio_annuale = df_mese[df_mese['recensione_stelle'] == 5]
+            rec_5 = df_premio_annuale.groupby('sales_recruiter').size().reset_index(name='cinque_stelle')
+            if not rec_5.empty:
+                max_num = rec_5['cinque_stelle'].max()
+                vincitori = rec_5[rec_5['cinque_stelle'] == max_num]
+                if len(vincitori) == 1:
+                    st.success(f"Il premio annuale va a {vincitori.iloc[0]['sales_recruiter']} con {max_num} recensioni 5 stelle!")
                 else:
-                    st.info("Nessuna recensione a 5 stelle nell'anno selezionato.")
+                    st.success(f"Premio annuale condiviso tra: {', '.join(vincitori['sales_recruiter'])}, con {max_num} 5 stelle!")
+            else:
+                st.info("Nessuna recensione a 5 stelle nell'anno selezionato.")
 
-                ################################
-                # Link ai dashboard personalizzati
-                ################################
-                st.markdown("---")
-                st.subheader("Dashboard Personali dei Recruiter")
-                st.write("Clicca sul nome del recruiter per vedere la propria dashboard:")
+            ################################
+            # Link ai dashboard personalizzati
+            ################################
+            st.markdown("---")
+            st.subheader("Dashboard Personali dei Recruiter")
+            st.write("Clicca sul nome del recruiter per vedere la propria dashboard:")
 
-                # Recupera la lista unica dei recruiter
-                recruiters = df['sales_recruiter'].unique()
+            # Recupera la lista unica dei recruiter
+            recruiters = df['sales_recruiter'].unique()
 
-                # Genera i link relativi per ogni recruiter
-                for rec in recruiters:
-                    # Codifica il nome del recruiter per l'URL
-                    rec_encoded = urllib.parse.quote(rec)
-                    # Nome della pagina senza spazi
-                    page_name = "Recruiter_Dashboard"
-                    link = f"/pages/{page_name}?recruiter_id={rec_encoded}"
-                    st.markdown(f"- [{rec}]({link})")
+            # Genera i link relativi per ogni recruiter
+            for rec in recruiters:
+                # Codifica il nome del recruiter per l'URL
+                rec_encoded = urllib.parse.quote(rec)
+                # Nome della pagina senza spazi
+                page_name = "Recruiter_Dashboard"
+                link = f"/pages/{page_name}?recruiter_id={rec_encoded}"
+                st.markdown(f"- [{rec}]({link})")
 
         ################################
         # TAB 4: Backup
         ################################
-            with tab4:
-                st.subheader("Gestione Backup (Esportazione e Ripristino)")
-                
-                st.markdown("### Esporta Dati in ZIP")
-                if st.button("Esegui Backup Ora", key='backup_now'):
-                    with st.spinner("Eseguendo il backup..."):
-                        backup_database()
+        with tab4:
+            st.subheader("Gestione Backup (Esportazione e Ripristino)")
+            
+            st.markdown("### Esporta Dati in ZIP")
+            if st.button("Esegui Backup Ora", key='backup_now'):
+                with st.spinner("Eseguendo il backup..."):
+                    backup_database()
 
-                backup_zip_path = os.path.join('backup', 'backup.zip')
-                if os.path.exists(backup_zip_path):
-                    with open(backup_zip_path, 'rb') as f:
-                        st.download_button(
-                            label="Scarica Backup ZIP",
-                            data=f,
-                            file_name="backup.zip",
-                            mime='application/zip'
-                        )
-                else:
-                    st.info("Nessun file ZIP di backup presente.")
-                
-                st.markdown("---")
-                st.markdown("### Ripristina Dati da ZIP")
-                uploaded_zip = st.file_uploader("Carica l'archivio ZIP di backup", type=['zip'], key='upload_zip')
-                if uploaded_zip is not None:
-                    if st.button("Ripristina DB da ZIP", key='restore_db'):
-                        with st.spinner("Ripristinando il database..."):
-                            restore_from_zip(uploaded_zip)
+            backup_zip_path = os.path.join('backup', 'backup.zip')
+            if os.path.exists(backup_zip_path):
+                with open(backup_zip_path, 'rb') as f:
+                    st.download_button(
+                        label="Scarica Backup ZIP",
+                        data=f,
+                        file_name="backup.zip",
+                        mime='application/zip'
+                    )
+            else:
+                st.info("Nessun file ZIP di backup presente.")
+            
+            st.markdown("---")
+            st.markdown("### Ripristina Dati da ZIP")
+            uploaded_zip = st.file_uploader("Carica l'archivio ZIP di backup", type=['zip'], key='upload_zip')
+            if uploaded_zip is not None:
+                if st.button("Ripristina DB da ZIP", key='restore_db'):
+                    with st.spinner("Ripristinando il database..."):
+                        restore_from_zip(uploaded_zip)
 
         ################################
         # TAB 5: Altre Info
         ################################
-            with tab5:
-                st.subheader("Altre Info / Gamification e Strumenti")
-                st.write("""
-                - Qui puoi mettere info generiche, 
-                - Over capacity email, 
-                - altre feature.
-                """)
-
-                ################################
-                # Link ai dashboard personalizzati (se non già fatto in tab3)
-                ################################
-                # Questo blocco è già stato inserito nella scheda "Bonus e Premi"
+        with tab5:
+            st.subheader("Altre Info / Gamification e Strumenti")
+            st.write("""
+            - Qui puoi mettere info generiche, 
+            - Over capacity email, 
+            - altre feature.
+            """)
 
         ################################
         # TAB 6: Classifica
         ################################
-            with tab6:
-                st.subheader("Classifica (Matplotlib)")
+        with tab6:
+            st.subheader("Classifica (Matplotlib)")
 
-                st.markdown("### Filtro per Anno")
-                anni_leader = sorted(df['data_inizio_dt'].dt.year.dropna().unique())
-                if len(anni_leader) == 0:
-                    st.warning("Nessun dato disponibile per il leaderboard.")
-                    st.stop()
-                # Converti gli anni in interi
-                anni_leader = [int(y) for y in anni_leader]
-                anno_leader = st.selectbox("Seleziona Anno", options=anni_leader, index=len(anni_leader)-1, key='leaderboard_anno')
+            st.markdown("### Filtro per Anno")
+            anni_leader = sorted(df['data_inizio_dt'].dt.year.dropna().unique())
+            if len(anni_leader) == 0:
+                st.warning("Nessun dato disponibile per il leaderboard.")
+                st.stop()
+            # Converti gli anni in interi
+            anni_leader = [int(y) for y in anni_leader]
+            anno_leader = st.selectbox("Seleziona Anno", options=anni_leader, index=len(anni_leader)-1, key='leaderboard_anno')
 
-                # Filtra i dati per il leaderboard basato sull'anno selezionato
-                try:
-                    start_date_leader = datetime(anno_leader, 1, 1)
-                    end_date_leader = datetime(anno_leader, 12, 31)
-                except TypeError as e:
-                    st.error(f"Errore nella selezione di Anno per il leaderboard: {e}")
-                    st.stop()
+            # Filtra i dati per il leaderboard basato sull'anno selezionato
+            try:
+                start_date_leader = datetime(anno_leader, 1, 1)
+                end_date_leader = datetime(anno_leader, 12, 31)
+            except TypeError as e:
+                st.error(f"Errore nella selezione di Anno per il leaderboard: {e}")
+                st.stop()
 
-                df_leader_filtered = df[
-                    (df['data_inizio_dt'] >= pd.Timestamp(start_date_leader)) &
-                    (df['data_inizio_dt'] <= pd.Timestamp(end_date_leader))
-                ]
+            df_leader_filtered = df[
+                (df['data_inizio_dt'] >= pd.Timestamp(start_date_leader)) &
+                (df['data_inizio_dt'] <= pd.Timestamp(end_date_leader))
+            ]
 
-                st.write(f"Anno in analisi: {anno_leader}")
+            st.write(f"Anno in analisi: {anno_leader}")
 
-                leaderboard_df = calcola_leaderboard_mensile(df_leader_filtered, start_date_leader, end_date_leader)
-                if leaderboard_df.empty:
-                    st.info("Nessun progetto completato in questo periodo.")
-                else:
-                    st.write("Classifica Annuale con punteggio e badge:")
-                    st.dataframe(leaderboard_df)
+            leaderboard_df = calcola_leaderboard_mensile(df_leader_filtered, start_date_leader, end_date_leader)
+            if leaderboard_df.empty:
+                st.info("Nessun progetto completato in questo periodo.")
+            else:
+                st.write("Classifica Annuale con punteggio e badge:")
+                st.dataframe(leaderboard_df)
 
-                    fig_leader = px.bar(
-                        leaderboard_df,
-                        x='sales_recruiter',
-                        y='punteggio',
-                        color='badge',
-                        title='Leaderboard Annuale'
-                    )
-                    st.plotly_chart(fig_leader)
+                fig_leader = px.bar(
+                    leaderboard_df,
+                    x='sales_recruiter',
+                    y='punteggio',
+                    color='badge',
+                    title='Leaderboard Annuale'
+                )
+                st.plotly_chart(fig_leader)
 
-                    st.markdown("""
-                    **Formula Punteggio**  
-                    - +10 punti ogni progetto completato  
-                    - +bonus (300/500) da recensioni 4/5 stelle  
-                    - +max(0, 30 - tempo_medio) per invertire la velocità  
-                    """)
-                    st.markdown("""
-                    **Badge**  
-                    - Bronze = almeno 5 completati  
-                    - Silver = almeno 10  
-                    - Gold   = almeno 20  
-                    """)
+                st.markdown("""
+                **Formula Punteggio**  
+                - +10 punti ogni progetto completato  
+                - +bonus (300/500) da recensioni 4/5 stelle  
+                - +max(0, 30 - tempo_medio) per invertire la velocità  
+                """)
+                st.markdown("""
+                **Badge**  
+                - Bronze = almeno 5 completati  
+                - Silver = almeno 10  
+                - Gold   = almeno 20  
+                """)
 
-                ################################
-                # Grafici nella Classifica
-                ################################
-                st.subheader("Grafici della Classifica")
+            ################################
+            # Grafici nella Classifica
+            ################################
+            st.subheader("Grafici della Classifica")
 
-                # (1) RECRUITER PIÙ VICINO AL PREMIO ANNUALE (5 STELLE)
-                st.markdown("**1) Recruiter più vicino al Premio Annuale (5 stelle)**")
-                df_premio_annuale = df_leader_filtered[df_leader_filtered['recensione_stelle'] == 5]
-                rec_5 = df_premio_annuale.groupby('sales_recruiter').size().reset_index(name='cinque_stelle')
-                rec_5 = rec_5.sort_values(by='cinque_stelle', ascending=False)
-                if rec_5.empty:
-                    st.info("Nessuna 5 stelle nell'anno selezionato.")
-                else:
-                    fig1, ax1 = plt.subplots(figsize=(6,4))
-                    ax1.bar(rec_5['sales_recruiter'], rec_5['cinque_stelle'], color='blue')
-                    ax1.set_title("N. Recensioni 5 stelle (anno selezionato)")
-                    ax1.set_xlabel("Recruiter")
-                    ax1.set_ylabel("Recensioni 5 stelle")
-                    plt.xticks(rotation=45, ha='right')
-                    st.pyplot(fig1)
+            # (1) RECRUITER PIÙ VICINO AL PREMIO ANNUALE (5 STELLE)
+            st.markdown("**1) Recruiter più vicino al Premio Annuale (5 stelle)**")
+            df_premio_annuale = df_leader_filtered[df_leader_filtered['recensione_stelle'] == 5]
+            rec_5 = df_premio_annuale.groupby('sales_recruiter').size().reset_index(name='cinque_stelle')
+            rec_5 = rec_5.sort_values(by='cinque_stelle', ascending=False)
+            if rec_5.empty:
+                st.info("Nessuna 5 stelle nell'anno selezionato.")
+            else:
+                fig1, ax1 = plt.subplots(figsize=(6,4))
+                ax1.bar(rec_5['sales_recruiter'], rec_5['cinque_stelle'], color='blue')
+                ax1.set_title("N. Recensioni 5 stelle (anno selezionato)")
+                ax1.set_xlabel("Recruiter")
+                ax1.set_ylabel("Recensioni 5 stelle")
+                plt.xticks(rotation=45, ha='right')
+                st.pyplot(fig1)
 
-                # (2) RECRUITER PIÙ VELOCE (TEMPO MEDIO)
-                st.markdown("**2) Recruiter più veloce (Tempo Medio)**")
-                df_comp = df_leader_filtered[
-                    (df_leader_filtered['stato_progetto'] == 'Completato') &
-                    (df_leader_filtered['data_inizio_dt'] >= pd.Timestamp(start_date_leader)) &
-                    (df_leader_filtered['data_inizio_dt'] <= pd.Timestamp(end_date_leader))
-                ].copy()
-                veloce = df_comp.groupby('sales_recruiter')['tempo_totale'].mean().reset_index()
-                veloce['tempo_totale'] = veloce['tempo_totale'].fillna(0)
-                veloce = veloce.sort_values(by='tempo_totale', ascending=True)
-                if veloce.empty:
-                    st.info("Nessun progetto completato per calcolare la velocità.")
-                else:
-                    fig2, ax2 = plt.subplots(figsize=(6,4))
-                    ax2.bar(veloce['sales_recruiter'], veloce['tempo_totale'], color='green')
-                    ax2.set_title("Tempo Medio (giorni) - Più basso = più veloce")
-                    ax2.set_xlabel("Recruiter")
-                    ax2.set_ylabel("Tempo Medio (giorni)")
-                    plt.xticks(rotation=45, ha='right')
-                    st.pyplot(fig2)
+            # (2) RECRUITER PIÙ VELOCE (TEMPO MEDIO)
+            st.markdown("**2) Recruiter più veloce (Tempo Medio)**")
+            df_comp = df_leader_filtered[
+                (df_leader_filtered['stato_progetto'] == 'Completato') &
+                (df_leader_filtered['data_inizio_dt'] >= pd.Timestamp(start_date_leader)) &
+                (df_leader_filtered['data_inizio_dt'] <= pd.Timestamp(end_date_leader))
+            ].copy()
+            veloce = df_comp.groupby('sales_recruiter')['tempo_totale'].mean().reset_index()
+            veloce['tempo_totale'] = veloce['tempo_totale'].fillna(0)
+            veloce = veloce.sort_values(by='tempo_totale', ascending=True)
+            if veloce.empty:
+                st.info("Nessun progetto completato per calcolare la velocità.")
+            else:
+                fig2, ax2 = plt.subplots(figsize=(6,4))
+                ax2.bar(veloce['sales_recruiter'], veloce['tempo_totale'], color='green')
+                ax2.set_title("Tempo Medio (giorni) - Più basso = più veloce")
+                ax2.set_xlabel("Recruiter")
+                ax2.set_ylabel("Tempo Medio (giorni)")
+                plt.xticks(rotation=45, ha='right')
+                st.pyplot(fig2)
 
-                # (3) RECRUITER CON PIÙ BONUS
-                st.markdown("**3) Recruiter con più Bonus ottenuti** (4 stelle=300, 5 stelle=500)")
-                def calcola_bonus_tmp(stelle):
-                    if stelle == 4:
-                        return 300
-                    elif stelle == 5:
-                        return 500
-                    else:
-                        return 0
-                df_bonus = df_leader_filtered.copy()
-                df_bonus['bonus'] = df_bonus['recensione_stelle'].apply(calcola_bonus_tmp)
-                bonus_df = df_bonus.groupby('sales_recruiter')['bonus'].sum().reset_index()
-                bonus_df = bonus_df.sort_values(by='bonus', ascending=False)
-                if bonus_df.empty:
-                    st.info("Nessun bonus calcolato.")
-                else:
-                    fig3, ax3 = plt.subplots(figsize=(6,4))
-                    ax3.bar(bonus_df['sales_recruiter'], bonus_df['bonus'], color='orange')
-                    ax3.set_title("Bonus Totale Ottenuto")
-                    ax3.set_xlabel("Recruiter")
-                    ax3.set_ylabel("Bonus (€)")
-                    plt.xticks(rotation=45, ha='right')
-                    st.pyplot(fig3)
+            # (3) RECRUITER CON PIÙ BONUS
+            st.markdown("**3) Recruiter con più Bonus ottenuti** (4 stelle=300, 5 stelle=500)")
+            df_bonus = df_leader_filtered.copy()
+            df_bonus['bonus'] = df_bonus['recensione_stelle'].apply(calcola_bonus)
+            bonus_df = df_bonus.groupby('sales_recruiter')['bonus'].sum().reset_index()
+            bonus_df = bonus_df.sort_values(by='bonus', ascending=False)
+            if bonus_df.empty:
+                st.info("Nessun bonus calcolato.")
+            else:
+                fig3, ax3 = plt.subplots(figsize=(6,4))
+                ax3.bar(bonus_df['sales_recruiter'], bonus_df['bonus'], color='orange')
+                ax3.set_title("Bonus Totale Ottenuto")
+                ax3.set_xlabel("Recruiter")
+                ax3.set_ylabel("Bonus (€)")
+                plt.xticks(rotation=45, ha='right')
+                st.pyplot(fig3)
 
-        #######################################
-        # 3. GESTISCI OPZIONI
-        #######################################
-    elif scelta == "Gestisci Opzioni":
-        st.write("Gestione settori, PM, recruiters e capacity in manage_options.py")
-        st.markdown("### Nota")
-        st.markdown("""
-        La gestione delle opzioni (settori, Project Managers, Recruiters e Capacità) è gestita nel file `manage_options.py`.
-        Assicurati di navigare a quella pagina per gestire le tue opzioni.
-        """)
-
-#######################################
-# FINE DEL FILE app.py
-#######################################
+    #######################################
+    # 3. GESTISCI OPZIONI
+    #######################################
+elif scelta == "Gestisci Opzioni":
+    st.write("Gestione settori, PM, recruiters e capacity in manage_options.py")
+    st.markdown("### Nota")
+    st.markdown("""
+    La gestione delle opzioni (settori, Project Managers, Recruiters e Capacità) è gestita nel file `manage_options.py`.
+    Assicurati di navigare a quella pagina per gestire le tue opzioni.
+    """)
