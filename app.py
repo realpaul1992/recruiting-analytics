@@ -682,7 +682,8 @@ elif scelta == "Dashboard":
                 
                 st.markdown("### Esporta Dati in ZIP")
                 if st.button("Esegui Backup Ora", key='backup_now'):
-                    backup_database()
+                    with st.spinner("Eseguendo il backup..."):
+                        backup_database()
 
                 backup_zip_path = os.path.join('backup', 'backup.zip')
                 if os.path.exists(backup_zip_path):
@@ -701,7 +702,8 @@ elif scelta == "Dashboard":
                 uploaded_zip = st.file_uploader("Carica l'archivio ZIP di backup", type=['zip'], key='upload_zip')
                 if uploaded_zip is not None:
                     if st.button("Ripristina DB da ZIP", key='restore_db'):
-                        restore_from_zip(uploaded_zip)
+                        with st.spinner("Ripristinando il database..."):
+                            restore_from_zip(uploaded_zip)
 
         ################################
         # TAB 5: Altre Info
@@ -831,4 +833,26 @@ elif scelta == "Dashboard":
                         return 0
                 df_bonus = df_leader_filtered.copy()
                 df_bonus['bonus'] = df_bonus['recensione_stelle'].apply(calcola_bonus_tmp)
-                bonus_df = df_bonus.groupby('sales_recruiter')['bonus'].su
+                bonus_df = df_bonus.groupby('sales_recruiter')['bonus'].sum().reset_index()
+                bonus_df = bonus_df.sort_values(by='bonus', ascending=False)
+                if bonus_df.empty:
+                    st.info("Nessun bonus calcolato.")
+                else:
+                    fig3, ax3 = plt.subplots(figsize=(6,4))
+                    ax3.bar(bonus_df['sales_recruiter'], bonus_df['bonus'], color='orange')
+                    ax3.set_title("Bonus Totale Ottenuto")
+                    ax3.set_xlabel("Recruiter")
+                    ax3.set_ylabel("Bonus (€)")
+                    plt.xticks(rotation=45, ha='right')
+                    st.pyplot(fig3)
+
+    #######################################
+    # 3. GESTISCI OPZIONI
+    #######################################
+elif scelta == "Gestisci Opzioni":
+    st.write("Gestione settori, PM, recruiters e capacity in manage_options.py")
+    st.markdown("### Nota")
+    st.markdown("""
+    La gestione delle opzioni (settori, Project Managers, Recruiters e Capacità) è gestita nel file `manage_options.py`.
+    Assicurati di navigare a quella pagina per gestire le tue opzioni.
+    """)
