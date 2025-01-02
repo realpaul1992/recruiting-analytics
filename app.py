@@ -652,13 +652,8 @@ elif scelta == "Dashboard":
                 st.plotly_chart(fig_bonus)
 
                 st.subheader("Premio Annuale (Recensioni a 5 stelle)")
-                oggi = datetime.today().date()
-                un_anno_fa = oggi - timedelta(days=365)
-                df_ultimo_anno = df[
-                    (df['recensione_data_dt'] >= pd.Timestamp(un_anno_fa)) &
-                    (df['recensione_stelle'] == 5)
-                ]
-                rec_5 = df_ultimo_anno.groupby('sales_recruiter').size().reset_index(name='cinque_stelle')
+                df_premio_annuale = df_mese[df_mese['recensione_stelle'] == 5]
+                rec_5 = df_premio_annuale.groupby('sales_recruiter').size().reset_index(name='cinque_stelle')
                 if not rec_5.empty:
                     max_num = rec_5['cinque_stelle'].max()
                     vincitori = rec_5[rec_5['cinque_stelle'] == max_num]
@@ -667,7 +662,7 @@ elif scelta == "Dashboard":
                     else:
                         st.success(f"Premio annuale condiviso tra: {', '.join(vincitori['sales_recruiter'])}, con {max_num} 5 stelle!")
                 else:
-                    st.info("Nessuna recensione a 5 stelle nell'ultimo anno.")
+                    st.info("Nessuna recensione a 5 stelle nell'anno selezionato.")
 
         ################################
         # TAB 4: Backup
@@ -717,20 +712,15 @@ elif scelta == "Dashboard":
 
                 # (1) RECRUITER PIÙ VICINO AL PREMIO ANNUALE (5 STELLE)
                 st.markdown("**1) Recruiter più vicino al Premio Annuale (5 stelle)**")
-                oggi = datetime.today().date()
-                un_anno_fa = oggi - timedelta(days=365)
-                df_ultimo_anno = df[
-                    (df['recensione_data_dt'] >= pd.Timestamp(un_anno_fa)) &
-                    (df['recensione_stelle'] == 5)
-                ]
-                annual_5 = df_ultimo_anno.groupby('sales_recruiter').size().reset_index(name='cinque_stelle')
-                annual_5 = annual_5.sort_values(by='cinque_stelle', ascending=False)
-                if annual_5.empty:
-                    st.info("Nessuna 5 stelle nell'ultimo anno.")
+                df_premio_annuale = df_mese[df_mese['recensione_stelle'] == 5]
+                rec_5 = df_premio_annuale.groupby('sales_recruiter').size().reset_index(name='cinque_stelle')
+                rec_5 = rec_5.sort_values(by='cinque_stelle', ascending=False)
+                if rec_5.empty:
+                    st.info("Nessuna 5 stelle nell'anno selezionato.")
                 else:
                     fig1, ax1 = plt.subplots(figsize=(6,4))
-                    ax1.bar(annual_5['sales_recruiter'], annual_5['cinque_stelle'], color='blue')
-                    ax1.set_title("N. Recensioni 5 stelle (ultimo anno)")
+                    ax1.bar(rec_5['sales_recruiter'], rec_5['cinque_stelle'], color='blue')
+                    ax1.set_title("N. Recensioni 5 stelle (anno selezionato)")
                     ax1.set_xlabel("Recruiter")
                     ax1.set_ylabel("Recensioni 5 stelle")
                     plt.xticks(rotation=45, ha='right')
@@ -738,7 +728,11 @@ elif scelta == "Dashboard":
 
                 # (2) RECRUITER PIÙ VELOCE (TEMPO MEDIO)
                 st.markdown("**2) Recruiter più veloce (Tempo Medio)**")
-                df_comp = df[df['stato_progetto'] == 'Completato'].copy()
+                df_comp = df[
+                    (df['stato_progetto'] == 'Completato') &
+                    (df['data_inizio_dt'] >= pd.Timestamp(start_date_bonus)) &
+                    (df['data_inizio_dt'] <= pd.Timestamp(end_date_bonus))
+                ].copy()
                 veloce = df_comp.groupby('sales_recruiter')['tempo_totale'].mean().reset_index()
                 veloce['tempo_totale'] = veloce['tempo_totale'].fillna(0)
                 veloce = veloce.sort_values(by='tempo_totale', ascending=True)
@@ -762,8 +756,9 @@ elif scelta == "Dashboard":
                         return 500
                     else:
                         return 0
-                df['bonus'] = df['recensione_stelle'].apply(calcola_bonus_tmp)
-                bonus_df = df.groupby('sales_recruiter')['bonus'].sum().reset_index()
+                df_bonus = df_mese.copy()
+                df_bonus['bonus'] = df_bonus['recensione_stelle'].apply(calcola_bonus_tmp)
+                bonus_df = df_bonus.groupby('sales_recruiter')['bonus'].sum().reset_index()
                 bonus_df = bonus_df.sort_values(by='bonus', ascending=False)
                 if bonus_df.empty:
                     st.info("Nessun bonus calcolato.")
