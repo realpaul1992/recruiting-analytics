@@ -458,7 +458,7 @@ elif scelta == "Dashboard":
                 st.stop()
             # Converti gli anni in interi
             anni_disponibili = [int(y) for y in anni_disponibili]
-            anno_selezionato = st.selectbox("Seleziona Anno", options=anni_disponibili, index=len(anni_disponibili)-1)
+            anno_selezionato = st.selectbox("Seleziona Anno", options=anni_disponibili, index=len(anni_disponibili)-1, key='panoramica_anno')
             
             # Filtra i dati in base all'anno selezionato
             try:
@@ -609,7 +609,7 @@ elif scelta == "Dashboard":
                     st.stop()
                 # Converti gli anni in interi
                 anni_disponibili_bonus = [int(y) for y in anni_disponibili_bonus]
-                anno_bonus = st.selectbox("Seleziona Anno", options=anni_disponibili_bonus, index=len(anni_disponibili_bonus)-1)
+                anno_bonus = st.selectbox("Seleziona Anno", options=anni_disponibili_bonus, index=len(anni_disponibili_bonus)-1, key='bonus_anno')
                 
                 # Filtra i dati in base all'anno selezionato
                 try:
@@ -782,7 +782,7 @@ elif scelta == "Dashboard":
                     st.stop()
                 # Converti gli anni in interi
                 anni_leader = [int(y) for y in anni_leader]
-                anno_leader = st.selectbox("Seleziona Anno", options=anni_leader, index=len(anni_leader)-1)
+                anno_leader = st.selectbox("Seleziona Anno", options=anni_leader, index=len(anni_leader)-1, key='leaderboard_anno')
                 
                 # Filtra i dati per il leaderboard
                 try:
