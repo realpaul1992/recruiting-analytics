@@ -450,28 +450,20 @@ elif scelta == "Dashboard":
         with tab1:
             st.subheader("Tempo Medio Generale e per Recruiter/Settore")
 
-            # Filtro per Mese e Anno
-            st.markdown("### Filtro per Mese e Anno")
+            # Filtro per Anno
+            st.markdown("### Filtro per Anno")
             anni_disponibili = sorted(df['data_inizio_dt'].dt.year.dropna().unique())
             if len(anni_disponibili) == 0:
                 st.warning("Nessun dato disponibile per i filtri.")
                 st.stop()
             anno_selezionato = st.selectbox("Seleziona Anno", options=anni_disponibili, index=len(anni_disponibili)-1)
-            mesi_disponibili = sorted(df[df['data_inizio_dt'].dt.year == anno_selezionato]['data_inizio_dt'].dt.month.unique())
             
-            if len(mesi_disponibili) == 0:
-                st.warning("Nessun mese disponibile per l'anno selezionato.")
-                st.stop()
-
-            mesi_nomi = [datetime(1900, m, 1).strftime('%B') for m in mesi_disponibili]
-            mese_selezionato = st.selectbox("Seleziona Mese", options=mesi_disponibili, format_func=lambda x: datetime(1900, x, 1).strftime('%B'))
-            
-            # Filtra i dati in base al mese e anno selezionati
+            # Filtra i dati in base all'anno selezionato
             try:
-                start_date = datetime(anno_selezionato, mese_selezionato, 1)
-                end_date = (start_date + pd.offsets.MonthEnd(1)).date()
+                start_date = datetime(anno_selezionato, 1, 1)
+                end_date = datetime(anno_selezionato, 12, 31).date()
             except TypeError as e:
-                st.error(f"Errore nella selezione di Anno e Mese: {e}")
+                st.error(f"Errore nella selezione di Anno: {e}")
                 st.stop()
 
             df_filtered = df[
@@ -480,7 +472,7 @@ elif scelta == "Dashboard":
             ]
 
             if df_filtered.empty:
-                st.info("Nessun dato disponibile per il periodo selezionato.")
+                st.info("Nessun dato disponibile per l'anno selezionato.")
             else:
                 # Tempo Medio Globale
                 df_comp = df_filtered[df_filtered['stato_progetto'] == 'Completato']
@@ -608,18 +600,27 @@ elif scelta == "Dashboard":
                 st.write("""
                     Esempio: 4 stelle => 300€, 5 stelle => 500€.
                 """)
-                st.markdown("### Filtro per Mese e Anno")
-                data_mese = st.date_input("Seleziona un Mese", value=datetime.today())
-                mese_inizio = data_mese.replace(day=1)
-                mese_fine = (mese_inizio + pd.offsets.MonthEnd(1)).date()
+                st.markdown("### Filtro per Anno")
+                anni_disponibili_bonus = sorted(df['data_inizio_dt'].dt.year.dropna().unique())
+                if len(anni_disponibili_bonus) == 0:
+                    st.warning("Nessun dato disponibile per il filtro dei bonus.")
+                    st.stop()
+                anno_bonus = st.selectbox("Seleziona Anno", options=anni_disponibili_bonus, index=len(anni_disponibili_bonus)-1)
+                
+                # Filtra i dati in base all'anno selezionato
+                try:
+                    start_date_bonus = datetime(anno_bonus, 1, 1)
+                    end_date_bonus = datetime(anno_bonus, 12, 31).date()
+                except TypeError as e:
+                    st.error(f"Errore nella selezione di Anno per i bonus: {e}")
+                    st.stop()
 
-                df['recensione_data_dt'] = pd.to_datetime(df['recensione_data'], errors='coerce')
                 df_mese = df[
-                    (df['recensione_data_dt'] >= pd.Timestamp(mese_inizio)) & 
-                    (df['recensione_data_dt'] <= pd.Timestamp(mese_fine))
+                    (df['recensione_data_dt'] >= pd.Timestamp(start_date_bonus)) & 
+                    (df['recensione_data_dt'] <= pd.Timestamp(end_date_bonus))
                 ]
 
-                st.write(f"Progetti con recensione in questo mese: {len(df_mese)}")
+                st.write(f"Progetti con recensione in questo anno: {len(df_mese)}")
 
                 def calcola_bonus(stelle):
                     if stelle == 4:
@@ -636,7 +637,7 @@ elif scelta == "Dashboard":
                     x='sales_recruiter',
                     y='bonus',
                     labels={'bonus':'Bonus (€)'},
-                    title='Bonus del Mese'
+                    title='Bonus dell\'Anno'
                 )
                 st.plotly_chart(fig_bonus)
 
@@ -770,24 +771,19 @@ elif scelta == "Dashboard":
 
                 # (4) LEADERBOARD MENSILE
                 st.markdown("**4) Leaderboard Mensile**")
-                st.markdown("### Filtro per Mese e Anno")
+                st.markdown("### Filtro per Anno")
                 anni_leader = sorted(df['data_inizio_dt'].dt.year.dropna().unique())
                 if len(anni_leader) == 0:
                     st.warning("Nessun dato disponibile per il leaderboard.")
                     st.stop()
                 anno_leader = st.selectbox("Seleziona Anno", options=anni_leader, index=len(anni_leader)-1)
-                mesi_leader = sorted(df[df['data_inizio_dt'].dt.year == anno_leader]['data_inizio_dt'].dt.month.unique())
-                if len(mesi_leader) == 0:
-                    st.warning("Nessun mese disponibile per l'anno selezionato.")
-                    st.stop()
-                mese_leader = st.selectbox("Seleziona Mese", options=mesi_leader, format_func=lambda x: datetime(1900, x, 1).strftime('%B'))
                 
                 # Filtra i dati per il leaderboard
                 try:
-                    start_date_leader = datetime(anno_leader, mese_leader, 1)
-                    end_date_leader = (start_date_leader + pd.offsets.MonthEnd(1)).date()
+                    start_date_leader = datetime(anno_leader, 1, 1)
+                    end_date_leader = datetime(anno_leader, 12, 31).date()
                 except TypeError as e:
-                    st.error(f"Errore nella selezione di Anno e Mese per il leaderboard: {e}")
+                    st.error(f"Errore nella selezione di Anno per il leaderboard: {e}")
                     st.stop()
 
                 df_leader_filtered = df[
@@ -795,7 +791,7 @@ elif scelta == "Dashboard":
                     (df['data_inizio_dt'] <= pd.Timestamp(end_date_leader))
                 ]
 
-                st.write(f"Mese in analisi: {start_date_leader.strftime('%d/%m/%Y')} - {end_date_leader.strftime('%d/%m/%Y')}")
+                st.write(f"Anno in analisi: {anno_leader}")
 
                 leaderboard_df = calcola_leaderboard_mensile(df_leader_filtered, start_date_leader, end_date_leader)
                 if leaderboard_df.empty:
@@ -809,7 +805,170 @@ elif scelta == "Dashboard":
                         x='sales_recruiter',
                         y='punteggio',
                         color='badge',
-                        title='Leaderboard Mensile'
+                        title='Leaderboard Annuale'
+                    )
+                    st.plotly_chart(fig_leader)
+
+                    st.markdown("""
+                    **Formula Punteggio**  
+                    - +10 punti ogni progetto completato  
+                    - +bonus (300/500) da recensioni 4/5 stelle  
+                    - +max(0, 30 - tempo_medio) per invertire la velocità  
+                    """)
+                    st.markdown("""
+                    **Badge**  
+                    - Bronze = almeno 5 completati  
+                    - Silver = almeno 10  
+                    - Gold   = almeno 20  
+                    """)
+
+        ################################
+        # TAB 4: Backup
+        ################################
+            with tab4:
+                st.subheader("Gestione Backup (Esportazione e Ripristino)")
+                
+                st.markdown("### Esporta Dati in ZIP")
+                if st.button("Esegui Backup Ora"):
+                    backup_database()
+
+                backup_zip_path = os.path.join('backup', 'backup.zip')
+                if os.path.exists(backup_zip_path):
+                    with open(backup_zip_path, 'rb') as f:
+                        st.download_button(
+                            label="Scarica Backup ZIP",
+                            data=f,
+                            file_name="backup.zip",
+                            mime='application/zip'
+                        )
+                else:
+                    st.info("Nessun file ZIP di backup presente.")
+                
+                st.markdown("---")
+                st.markdown("### Ripristina Dati da ZIP")
+                uploaded_zip = st.file_uploader("Carica l'archivio ZIP di backup", type=['zip'])
+                if uploaded_zip is not None:
+                    if st.button("Ripristina DB da ZIP"):
+                        restore_from_zip(uploaded_zip)
+
+        ################################
+        # TAB 5: Altre Info
+        ################################
+            with tab5:
+                st.subheader("Altre Info / Gamification e Strumenti")
+                st.write("""
+                - Qui puoi mettere info generiche, 
+                - Over capacity email, 
+                - altre feature.
+                """)
+
+        ################################
+        # TAB 6: Classifica
+        ################################
+            with tab6:
+                st.subheader("Classifica (Matplotlib)")
+
+                # (1) RECRUITER PIÙ VICINO AL PREMIO ANNUALE (5 STELLE)
+                df['recensione_stelle'] = df['recensione_stelle'].fillna(0).astype(int)
+                df['recensione_data_dt'] = pd.to_datetime(df['recensione_data'], errors='coerce')
+
+                st.markdown("**1) Recruiter più vicino al Premio Annuale (5 stelle)**")
+                oggi = datetime.today().date()
+                un_anno_fa = oggi - timedelta(days=365)
+                df_ultimo_anno = df[
+                    (df['recensione_data_dt'] >= pd.Timestamp(un_anno_fa)) &
+                    (df['recensione_stelle'] == 5)
+                ]
+                annual_5 = df_ultimo_anno.groupby('sales_recruiter').size().reset_index(name='cinque_stelle')
+                annual_5 = annual_5.sort_values(by='cinque_stelle', ascending=False)
+                if annual_5.empty:
+                    st.info("Nessuna 5 stelle nell'ultimo anno.")
+                else:
+                    fig1, ax1 = plt.subplots(figsize=(6,4))
+                    ax1.bar(annual_5['sales_recruiter'], annual_5['cinque_stelle'], color='blue')
+                    ax1.set_title("N. Recensioni 5 stelle (ultimo anno)")
+                    ax1.set_xlabel("Recruiter")
+                    ax1.set_ylabel("Recensioni 5 stelle")
+                    plt.xticks(rotation=45, ha='right')
+                    st.pyplot(fig1)
+
+                # (2) RECRUITER PIÙ VELOCE (TEMPO MEDIO)
+                st.markdown("**2) Recruiter più veloce (Tempo Medio)**")
+                df_comp = df[df['stato_progetto'] == 'Completato'].copy()
+                veloce = df_comp.groupby('sales_recruiter')['tempo_totale'].mean().reset_index()
+                veloce['tempo_totale'] = veloce['tempo_totale'].fillna(0)
+                veloce = veloce.sort_values(by='tempo_totale', ascending=True)
+                if veloce.empty:
+                    st.info("Nessun progetto completato per calcolare la velocità.")
+                else:
+                    fig2, ax2 = plt.subplots(figsize=(6,4))
+                    ax2.bar(veloce['sales_recruiter'], veloce['tempo_totale'], color='green')
+                    ax2.set_title("Tempo Medio (giorni) - Più basso = più veloce")
+                    ax2.set_xlabel("Recruiter")
+                    ax2.set_ylabel("Tempo Medio (giorni)")
+                    plt.xticks(rotation=45, ha='right')
+                    st.pyplot(fig2)
+
+                # (3) RECRUITER CON PIÙ BONUS
+                st.markdown("**3) Recruiter con più Bonus ottenuti** (4 stelle=300, 5 stelle=500)")
+                def calcola_bonus_tmp(stelle):
+                    if stelle == 4:
+                        return 300
+                    elif stelle == 5:
+                        return 500
+                    else:
+                        return 0
+                df['bonus'] = df['recensione_stelle'].apply(calcola_bonus_tmp)
+                bonus_df = df.groupby('sales_recruiter')['bonus'].sum().reset_index()
+                bonus_df = bonus_df.sort_values(by='bonus', ascending=False)
+                if bonus_df.empty:
+                    st.info("Nessun bonus calcolato.")
+                else:
+                    fig3, ax3 = plt.subplots(figsize=(6,4))
+                    ax3.bar(bonus_df['sales_recruiter'], bonus_df['bonus'], color='orange')
+                    ax3.set_title("Bonus Totale Ottenuto")
+                    ax3.set_xlabel("Recruiter")
+                    ax3.set_ylabel("Bonus (€)")
+                    plt.xticks(rotation=45, ha='right')
+                    st.pyplot(fig3)
+
+                # (4) LEADERBOARD ANNUALE
+                st.markdown("**4) Leaderboard Annuale**")
+                st.markdown("### Filtro per Anno")
+                anni_leader = sorted(df['data_inizio_dt'].dt.year.dropna().unique())
+                if len(anni_leader) == 0:
+                    st.warning("Nessun dato disponibile per il leaderboard.")
+                    st.stop()
+                anno_leader = st.selectbox("Seleziona Anno", options=anni_leader, index=len(anni_leader)-1)
+                
+                # Filtra i dati per il leaderboard
+                try:
+                    start_date_leader = datetime(anno_leader, 1, 1)
+                    end_date_leader = datetime(anno_leader, 12, 31).date()
+                except TypeError as e:
+                    st.error(f"Errore nella selezione di Anno per il leaderboard: {e}")
+                    st.stop()
+
+                df_leader_filtered = df[
+                    (df['data_inizio_dt'] >= pd.Timestamp(start_date_leader)) &
+                    (df['data_inizio_dt'] <= pd.Timestamp(end_date_leader))
+                ]
+
+                st.write(f"Anno in analisi: {anno_leader}")
+
+                leaderboard_df = calcola_leaderboard_mensile(df_leader_filtered, start_date_leader, end_date_leader)
+                if leaderboard_df.empty:
+                    st.info("Nessun progetto completato in questo periodo.")
+                else:
+                    st.write("Classifica Annuale con punteggio e badge:")
+                    st.dataframe(leaderboard_df)
+
+                    fig_leader = px.bar(
+                        leaderboard_df,
+                        x='sales_recruiter',
+                        y='punteggio',
+                        color='badge',
+                        title='Leaderboard Annuale'
                     )
                     st.plotly_chart(fig_leader)
 
@@ -829,13 +988,13 @@ elif scelta == "Dashboard":
     #######################################
     # 3. GESTISCI OPZIONI
     #######################################
-    elif scelta == "Gestisci Opzioni":
-        st.write("Gestione settori, PM, recruiters e capacity in manage_options.py")
-        st.markdown("### Nota")
-        st.markdown("""
-        La gestione delle opzioni (settori, Project Managers, Recruiters e Capacità) è gestita nel file `manage_options.py`.
-        Assicurati di navigare a quella pagina per gestire le tue opzioni.
-        """)
+elif scelta == "Gestisci Opzioni":
+    st.write("Gestione settori, PM, recruiters e capacity in manage_options.py")
+    st.markdown("### Nota")
+    st.markdown("""
+    La gestione delle opzioni (settori, Project Managers, Recruiters e Capacità) è gestita nel file `manage_options.py`.
+    Assicurati di navigare a quella pagina per gestire le tue opzioni.
+    """)
 
 #######################################
 # FINE DEL FILE app.py
