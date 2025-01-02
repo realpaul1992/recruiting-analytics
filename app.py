@@ -50,6 +50,22 @@ def carica_recruiters():
     conn.close()
     return rows
 
+def carica_recruiters_capacity():
+    conn = get_connection()
+    c = conn.cursor()
+    query = '''
+        SELECT r.nome AS sales_recruiter,
+               IFNULL(rc.capacity_max, 5) AS capacity
+        FROM recruiters r
+        LEFT JOIN recruiter_capacity rc ON r.id = rc.recruiter_id
+        ORDER BY r.nome
+    '''
+    c.execute(query)
+    rows = c.fetchall()
+    df_capacity = pd.DataFrame(rows, columns=['sales_recruiter', 'capacity'])
+    conn.close()
+    return df_capacity
+
 def inserisci_dati(cliente, settore_id, pm_id, rec_id, data_inizio):
     """
     Inserisce un nuovo progetto in MySQL.
@@ -164,6 +180,87 @@ def calcola_bonus(stelle):
         return 500
     else:
         return 0
+
+#######################################
+# FUNZIONE PER CALCOLARE LEADERBOARD MENSILE
+#######################################
+def calcola_leaderboard_mensile(df, start_date, end_date):
+    df_temp = df.copy()
+    df_temp['data_inizio_dt'] = pd.to_datetime(df_temp['data_inizio'], errors='coerce')
+    df_temp['recensione_stelle'] = df_temp['recensione_stelle'].fillna(0).astype(int)
+
+    # bonus da recensioni
+    def bonus_stelle(stelle):
+        if stelle == 4:
+            return 300
+        elif stelle == 5:
+            return 500
+        return 0
+    
+    df_temp['bonus'] = df_temp['recensione_stelle'].apply(bonus_stelle)
+
+    mask = (
+        (df_temp['stato_progetto'] == 'Completato') &
+        (df_temp['data_inizio_dt'] >= pd.Timestamp(start_date)) &
+        (df_temp['data_inizio_dt'] <= pd.Timestamp(end_date))
+    )
+    df_filtro = df_temp[mask].copy()
+
+    if df_filtro.empty:
+        return pd.DataFrame([], columns=[
+            'sales_recruiter','completati','tempo_medio','bonus_totale','punteggio','badge'
+        ])
+
+    group = df_filtro.groupby('sales_recruiter')
+    completati = group.size().reset_index(name='completati')
+    tempo_medio = group['tempo_totale'].mean().reset_index(name='tempo_medio')
+    bonus_sum = group['bonus'].sum().reset_index(name='bonus_totale')
+
+    leaderboard = (
+        completati
+        .merge(tempo_medio, on='sales_recruiter', how='left')
+        .merge(bonus_sum, on='sales_recruiter', how='left')
+    )
+
+    leaderboard['tempo_medio'] = leaderboard['tempo_medio'].fillna(0)
+    leaderboard['bonus_totale'] = leaderboard['bonus_totale'].fillna(0)
+    leaderboard['punteggio'] = (
+        leaderboard['completati'] * 10
+        + leaderboard['bonus_totale']
+        + leaderboard['tempo_medio'].apply(lambda x: max(0, 30 - x))
+    )
+
+    def assegna_badge(n):
+        if n >= 20:
+            return "Gold"
+        elif n >= 10:
+            return "Silver"
+        elif n >= 5:
+            return "Bronze"
+        return ""
+    
+    leaderboard['badge'] = leaderboard['completati'].apply(assegna_badge)
+    leaderboard = leaderboard.sort_values('punteggio', ascending=False)
+    return leaderboard
+
+#######################################
+# UTILITIES PER FORMATTARE LE DATE
+#######################################
+def format_date_display(x):
+    """Formatta le date dal formato 'YYYY-MM-DD' a 'DD/MM/YYYY'."""
+    if not x:
+        return ""
+    try:
+        return datetime.strptime(x, '%Y-%m-%d').strftime('%d/%m/%Y')
+    except ValueError:
+        return x  # Se il formato non è corretto o è vuoto, lascio inalterato
+
+def parse_date(date_str):
+    """Converti una stringa di data in un oggetto datetime.date (assumendo formato 'YYYY-MM-DD')."""
+    try:
+        return datetime.strptime(date_str, '%Y-%m-%d').date()
+    except (ValueError, TypeError):
+        return None
 
 #######################################
 # DASHBOARD PER ADMIN
