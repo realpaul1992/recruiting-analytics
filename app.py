@@ -699,17 +699,25 @@ elif scelta == "Dashboard":
             st.subheader("Premio Annuale (Recensioni a 5 stelle)")
             # Rimosso il testo statico con il placeholder
 
-            # Premiazione basata sulle recensioni a 5 stelle
-            df_premio_annuale = df_bonus_totale[df_bonus_totale['bonus_totale'] >= 500]  # Considerando solo 5 stelle
-            if not df_premio_annuale.empty:
-                max_bonus = df_premio_annuale['bonus_totale'].max()
-                vincitori = df_premio_annuale[df_premio_annuale['bonus_totale'] == max_bonus]
-                if len(vincitori) == 1:
-                    st.success(f"Il premio annuale va a {vincitori.iloc[0]['sales_recruiter']} con {max_bonus}€ di bonus!")
+            # **Nuova Implementazione: Premiazione Basata sulle Recensioni a 5 Stelle**
+            # Contare il numero di recensioni a 5 stelle per ogni recruiter
+            df_reviews_5 = df[
+                (df['recensione_stelle'] == 5) &
+                (df['recensione_data_dt'] >= pd.Timestamp(start_date_bonus)) &
+                (df['recensione_data_dt'] <= pd.Timestamp(end_date_bonus))
+            ]
+
+            if not df_reviews_5.empty:
+                count_reviews = df_reviews_5.groupby('sales_recruiter').size().reset_index(name='recensioni_5_stelle')
+                max_reviews = count_reviews['recensioni_5_stelle'].max()
+                top_recruiters = count_reviews[count_reviews['recensioni_5_stelle'] == max_reviews]
+
+                if len(top_recruiters) == 1:
+                    st.success(f"Il premio annuale va a {top_recruiters.iloc[0]['sales_recruiter']} con {top_recruiters.iloc[0]['recensioni_5_stelle']} recensioni a 5 stelle!")
                 else:
-                    st.success(f"Premio annuale condiviso tra: {', '.join(vincitori['sales_recruiter'])}, ciascuno con {max_bonus}€ di bonus!")
+                    st.success(f"Premio annuale condiviso tra: {', '.join(top_recruiters['sales_recruiter'])}, ciascuno con {max_reviews} recensioni a 5 stelle!")
             else:
-                st.info("Nessun recruiter ha raggiunto il livello di bonus necessario per il premio annuale.")
+                st.info("Nessun recruiter ha ricevuto recensioni a 5 stelle quest'anno.")
 
         ################################
         # TAB 4: Backup
