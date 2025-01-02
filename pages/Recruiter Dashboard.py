@@ -70,7 +70,16 @@ def carica_dati_completo():
     
     return df
 
+#######################################
+# DEFINIZIONE DELLA FUNZIONE calcola_bonus
+#######################################
 def calcola_bonus(stelle):
+    """
+    Calcola il bonus in base al numero di stelle della recensione.
+    - 4 stelle: 300€
+    - 5 stelle: 500€
+    - Altri valori: 0€
+    """
     if stelle == 4:
         return 300
     elif stelle == 5:
@@ -80,6 +89,7 @@ def calcola_bonus(stelle):
 
 # Leggi i parametri della query
 query_params = st.query_params
+st.write("Parametri della Query:", query_params)  # Debugging: Mostra i parametri ricevuti
 if 'recruiter_id' in query_params:
     recruiter_id = query_params['recruiter_id'][0]
     # Decodifica eventuali caratteri speciali
