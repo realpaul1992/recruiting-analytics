@@ -6,6 +6,7 @@ import pymysql
 from datetime import datetime, timedelta
 import plotly.express as px
 import matplotlib.pyplot as plt
+import urllib.parse
 
 def get_connection():
     """
@@ -77,24 +78,26 @@ def calcola_bonus(stelle):
     else:
         return 0
 
-# Read query params
-query_params = st.experimental_get_query_params()
+# Leggi i parametri della query
+query_params = st.query_params
 if 'recruiter_id' in query_params:
     recruiter_id = query_params['recruiter_id'][0]
-    # Optionally, sanitize recruiter_id or convert to int if necessary
+    # Decodifica eventuali caratteri speciali
+    recruiter_id = urllib.parse.unquote(recruiter_id)
+    # Optionally, sanitizza recruiter_id o convertila in int se necessario
 else:
     st.error("Nessun recruiter specificato. Accesso non autorizzato.")
     st.stop()
 
-# Load data
+# Carica i dati
 df = carica_dati_completo()
 
-# Verify recruiter exists
+# Verifica che il recruiter esista
 if recruiter_id not in df['sales_recruiter'].unique():
     st.error("Recruiter non trovato.")
     st.stop()
 
-# Filter data for the recruiter
+# Filtra i dati per il recruiter
 df_recruiter = df[df['sales_recruiter'] == recruiter_id]
 
 if df_recruiter.empty:
@@ -138,7 +141,7 @@ fig_award = px.bar(
     height=400
 )
 
-# Highlight the current recruiter
+# Evidenzia il recruiter corrente
 fig_award.add_trace(
     px.bar(
         rec_5_reviews[rec_5_reviews['sales_recruiter'] == recruiter_id],
@@ -147,6 +150,7 @@ fig_award.add_trace(
     ).data[0]
 )
 
+# Aggiorna i colori per evidenziare il recruiter corrente
 fig_award.update_traces(marker_color=['orange' if r == recruiter_id else 'blue' for r in rec_5_reviews['sales_recruiter']])
 st.plotly_chart(fig_award)
 
