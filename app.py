@@ -263,6 +263,107 @@ def parse_date(date_str):
         return None
 
 #######################################
+# GESTIONE BACKUP in ZIP (Esportazione + Ripristino)
+#######################################
+
+def backup_database():
+    """
+    Esegue un "backup" esportando i dati di ciascuna tabella in un CSV
+    all’interno di un archivio ZIP nella cartella 'backup'.
+    Sovrascrive l'archivio ZIP esistente.
+    """
+    backup_dir = "backup"
+    if not os.path.exists(backup_dir):
+        os.makedirs(backup_dir)
+
+    backup_zip_path = os.path.join(backup_dir, "backup.zip")
+    
+    # Crea un nuovo archivio ZIP, sovrascrivendo quello esistente
+    with zipfile.ZipFile(backup_zip_path, 'w', zipfile.ZIP_DEFLATED) as backup_zip:
+        conn = get_connection()
+        c = conn.cursor()
+
+        # Legge l’elenco delle tabelle
+        c.execute("SHOW TABLES")
+        tables = c.fetchall()
+
+        st.info("Inizio backup MySQL in ZIP...")
+
+        for (table_name,) in tables:
+            # Query: SELECT * FROM <table_name>
+            c.execute(f"SELECT * FROM {table_name}")
+            rows = c.fetchall()
+            col_names = [desc[0] for desc in c.description]
+
+            df_table = pd.DataFrame(rows, columns=col_names)
+            csv_data = df_table.to_csv(index=False, encoding="utf-8")
+
+            # Scrivi il CSV direttamente nell'archivio ZIP
+            backup_zip.writestr(f"{table_name}.csv", csv_data)
+
+        conn.close()
+    
+    st.success("Backup completato: archivio ZIP creato in /backup/backup.zip.")
+
+def restore_from_zip(zip_file):
+    """
+    Ripristina il database da un archivio ZIP contenente CSV delle tabelle.
+    - Estrae ogni CSV e ripristina la relativa tabella.
+    """
+    if not zipfile.is_zipfile(zip_file):
+        st.error("Il file caricato non è un archivio ZIP valido.")
+        return
+
+    with zipfile.ZipFile(zip_file, 'r') as backup_zip:
+        # Ottieni la lista dei file CSV nell'archivio
+        csv_files = [f for f in backup_zip.namelist() if f.endswith('.csv')]
+
+        if not csv_files:
+            st.error("L'archivio ZIP non contiene file CSV di backup.")
+            return
+
+        conn = get_connection()
+        c = conn.cursor()
+
+        st.info("Inizio ripristino database da ZIP...")
+
+        for csv_file in csv_files:
+            table_name = os.path.splitext(os.path.basename(csv_file))[0]
+            st.write(f"Ripristino tabella '{table_name}'...")
+
+            # Leggi il contenuto del CSV
+            with backup_zip.open(csv_file) as f:
+                df = pd.read_csv(f)
+
+            # Esegui TRUNCATE sulla tabella
+            try:
+                c.execute(f"TRUNCATE TABLE {table_name}")
+            except pymysql.Error as e:
+                st.error(f"Errore TRUNCATE {table_name}: {e}")
+                conn.close()
+                return
+
+            # Prepara le colonne e i placeholder per l'INSERT
+            col_names = df.columns.tolist()
+            placeholders = ",".join(["%s"] * len(col_names))
+            col_list_str = ",".join(col_names)
+            insert_query = f"INSERT INTO {table_name} ({col_list_str}) VALUES ({placeholders})"
+
+            # Inserisci le righe
+            try:
+                for row in df.itertuples(index=False, name=None):
+                    c.execute(insert_query, row)
+            except pymysql.Error as e:
+                st.error(f"Errore durante l'INSERT nella tabella {table_name}: {e}")
+                conn.rollback()
+                conn.close()
+                return
+
+        conn.commit()
+        conn.close()
+        st.success("Ripristino completato con successo da ZIP.")
+
+#######################################
 # DASHBOARD PER ADMIN
 #######################################
 def admin_dashboard(df):
@@ -379,6 +480,8 @@ def admin_dashboard(df):
     # DASHBOARD PERSONALE PER RECRUITER
     #######################################
     def recruiter_dashboard_personale(recruiter_username, df):
+        st.write(f"Funzione recruiter_dashboard_personale definita correttamente per {recruiter_username}.")  # Debug
+
         df_recruiter = df[df['sales_recruiter'] == recruiter_username]
         
         if df_recruiter.empty:
