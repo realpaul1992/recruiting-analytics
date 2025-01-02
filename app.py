@@ -145,6 +145,10 @@ def carica_dati_completo():
         df["tempo_previsto"] = pd.to_numeric(df["tempo_previsto"], errors="coerce")
         df["tempo_previsto"] = df["tempo_previsto"].fillna(0).astype(int)
     
+    # Aggiungi 'data_inizio_dt' e 'recensione_data_dt' subito dopo
+    df['data_inizio_dt'] = pd.to_datetime(df['data_inizio'], errors='coerce')
+    df['recensione_data_dt'] = pd.to_datetime(df['recensione_data'], errors='coerce')
+    
     return df
 
 #######################################
@@ -431,9 +435,6 @@ elif scelta == "Dashboard":
     if df.empty:
         st.info("Nessun progetto disponibile nel DB.")
     else:
-        # Assicurati che 'data_inizio_dt' sia datetime
-        df['data_inizio_dt'] = pd.to_datetime(df['data_inizio'], errors='coerce')
-
         # Creiamo le Tab
         tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
             "Panoramica",
@@ -619,6 +620,11 @@ elif scelta == "Dashboard":
                     st.error(f"Errore nella selezione di Anno per i bonus: {e}")
                     st.stop()
 
+                # Verifica se 'recensione_data_dt' esiste
+                if 'recensione_data_dt' not in df.columns:
+                    st.error("La colonna 'recensione_data_dt' non esiste nel DataFrame.")
+                    st.stop()
+
                 df_mese = df[
                     (df['recensione_data_dt'] >= pd.Timestamp(start_date_bonus)) & 
                     (df['recensione_data_dt'] <= pd.Timestamp(end_date_bonus))
@@ -710,9 +716,6 @@ elif scelta == "Dashboard":
                 st.subheader("Classifica (Matplotlib)")
 
                 # (1) RECRUITER PIÙ VICINO AL PREMIO ANNUALE (5 STELLE)
-                df['recensione_stelle'] = df['recensione_stelle'].fillna(0).astype(int)
-                df['recensione_data_dt'] = pd.to_datetime(df['recensione_data'], errors='coerce')
-
                 st.markdown("**1) Recruiter più vicino al Premio Annuale (5 stelle)**")
                 oggi = datetime.today().date()
                 un_anno_fa = oggi - timedelta(days=365)
