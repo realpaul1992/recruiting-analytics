@@ -464,7 +464,7 @@ elif scelta == "Dashboard":
             # Filtra i dati in base all'anno selezionato
             try:
                 start_date = datetime(anno_selezionato, 1, 1)
-                end_date = datetime(anno_selezionato, 12, 31).date()
+                end_date = datetime(anno_selezionato, 12, 31)
             except TypeError as e:
                 st.error(f"Errore nella selezione di Anno: {e}")
                 st.stop()
@@ -615,7 +615,7 @@ elif scelta == "Dashboard":
                 # Filtra i dati in base all'anno selezionato
                 try:
                     start_date_bonus = datetime(anno_bonus, 1, 1)
-                    end_date_bonus = datetime(anno_bonus, 12, 31).date()
+                    end_date_bonus = datetime(anno_bonus, 12, 31)
                 except TypeError as e:
                     st.error(f"Errore nella selezione di Anno per i bonus: {e}")
                     st.stop()
@@ -710,69 +710,6 @@ elif scelta == "Dashboard":
             with tab6:
                 st.subheader("Classifica (Matplotlib)")
 
-                # (1) RECRUITER PIÙ VICINO AL PREMIO ANNUALE (5 STELLE)
-                st.markdown("**1) Recruiter più vicino al Premio Annuale (5 stelle)**")
-                df_premio_annuale = df_mese[df_mese['recensione_stelle'] == 5]
-                rec_5 = df_premio_annuale.groupby('sales_recruiter').size().reset_index(name='cinque_stelle')
-                rec_5 = rec_5.sort_values(by='cinque_stelle', ascending=False)
-                if rec_5.empty:
-                    st.info("Nessuna 5 stelle nell'anno selezionato.")
-                else:
-                    fig1, ax1 = plt.subplots(figsize=(6,4))
-                    ax1.bar(rec_5['sales_recruiter'], rec_5['cinque_stelle'], color='blue')
-                    ax1.set_title("N. Recensioni 5 stelle (anno selezionato)")
-                    ax1.set_xlabel("Recruiter")
-                    ax1.set_ylabel("Recensioni 5 stelle")
-                    plt.xticks(rotation=45, ha='right')
-                    st.pyplot(fig1)
-
-                # (2) RECRUITER PIÙ VELOCE (TEMPO MEDIO)
-                st.markdown("**2) Recruiter più veloce (Tempo Medio)**")
-                df_comp = df[
-                    (df['stato_progetto'] == 'Completato') &
-                    (df['data_inizio_dt'] >= pd.Timestamp(start_date_bonus)) &
-                    (df['data_inizio_dt'] <= pd.Timestamp(end_date_bonus))
-                ].copy()
-                veloce = df_comp.groupby('sales_recruiter')['tempo_totale'].mean().reset_index()
-                veloce['tempo_totale'] = veloce['tempo_totale'].fillna(0)
-                veloce = veloce.sort_values(by='tempo_totale', ascending=True)
-                if veloce.empty:
-                    st.info("Nessun progetto completato per calcolare la velocità.")
-                else:
-                    fig2, ax2 = plt.subplots(figsize=(6,4))
-                    ax2.bar(veloce['sales_recruiter'], veloce['tempo_totale'], color='green')
-                    ax2.set_title("Tempo Medio (giorni) - Più basso = più veloce")
-                    ax2.set_xlabel("Recruiter")
-                    ax2.set_ylabel("Tempo Medio (giorni)")
-                    plt.xticks(rotation=45, ha='right')
-                    st.pyplot(fig2)
-
-                # (3) RECRUITER CON PIÙ BONUS
-                st.markdown("**3) Recruiter con più Bonus ottenuti** (4 stelle=300, 5 stelle=500)")
-                def calcola_bonus_tmp(stelle):
-                    if stelle == 4:
-                        return 300
-                    elif stelle == 5:
-                        return 500
-                    else:
-                        return 0
-                df_bonus = df_mese.copy()
-                df_bonus['bonus'] = df_bonus['recensione_stelle'].apply(calcola_bonus_tmp)
-                bonus_df = df_bonus.groupby('sales_recruiter')['bonus'].sum().reset_index()
-                bonus_df = bonus_df.sort_values(by='bonus', ascending=False)
-                if bonus_df.empty:
-                    st.info("Nessun bonus calcolato.")
-                else:
-                    fig3, ax3 = plt.subplots(figsize=(6,4))
-                    ax3.bar(bonus_df['sales_recruiter'], bonus_df['bonus'], color='orange')
-                    ax3.set_title("Bonus Totale Ottenuto")
-                    ax3.set_xlabel("Recruiter")
-                    ax3.set_ylabel("Bonus (€)")
-                    plt.xticks(rotation=45, ha='right')
-                    st.pyplot(fig3)
-
-                # (4) LEADERBOARD ANNUALE
-                st.markdown("**4) Leaderboard Annuale**")
                 st.markdown("### Filtro per Anno")
                 anni_leader = sorted(df['data_inizio_dt'].dt.year.dropna().unique())
                 if len(anni_leader) == 0:
@@ -781,11 +718,11 @@ elif scelta == "Dashboard":
                 # Converti gli anni in interi
                 anni_leader = [int(y) for y in anni_leader]
                 anno_leader = st.selectbox("Seleziona Anno", options=anni_leader, index=len(anni_leader)-1, key='leaderboard_anno')
-                
-                # Filtra i dati per il leaderboard
+
+                # Filtra i dati per il leaderboard basato sull'anno selezionato
                 try:
                     start_date_leader = datetime(anno_leader, 1, 1)
-                    end_date_leader = datetime(anno_leader, 12, 31).date()
+                    end_date_leader = datetime(anno_leader, 12, 31)
                 except TypeError as e:
                     st.error(f"Errore nella selezione di Anno per il leaderboard: {e}")
                     st.stop()
@@ -825,6 +762,79 @@ elif scelta == "Dashboard":
                     - Silver = almeno 10  
                     - Gold   = almeno 20  
                     """)
+
+                ################################
+                # Grafici nella Classifica
+                ################################
+                st.subheader("Grafici della Classifica")
+
+                # (1) RECRUITER PIÙ VICINO AL PREMIO ANNUALE (5 STELLE)
+                st.markdown("**1) Recruiter più vicino al Premio Annuale (5 stelle)**")
+                df_premio_annuale = df_leader_filtered[df_leader_filtered['recensione_stelle'] == 5]
+                rec_5 = df_premio_annuale.groupby('sales_recruiter').size().reset_index(name='cinque_stelle')
+                rec_5 = rec_5.sort_values(by='cinque_stelle', ascending=False)
+                if rec_5.empty:
+                    st.info("Nessuna 5 stelle nell'anno selezionato.")
+                else:
+                    fig1, ax1 = plt.subplots(figsize=(6,4))
+                    ax1.bar(rec_5['sales_recruiter'], rec_5['cinque_stelle'], color='blue')
+                    ax1.set_title("N. Recensioni 5 stelle (anno selezionato)")
+                    ax1.set_xlabel("Recruiter")
+                    ax1.set_ylabel("Recensioni 5 stelle")
+                    plt.xticks(rotation=45, ha='right')
+                    st.pyplot(fig1)
+
+                # (2) RECRUITER PIÙ VELOCE (TEMPO MEDIO)
+                st.markdown("**2) Recruiter più veloce (Tempo Medio)**")
+                df_comp = df_leader_filtered[
+                    (df_leader_filtered['stato_progetto'] == 'Completato') &
+                    (df_leader_filtered['data_inizio_dt'] >= pd.Timestamp(start_date_leader)) &
+                    (df_leader_filtered['data_inizio_dt'] <= pd.Timestamp(end_date_leader))
+                ].copy()
+                veloce = df_comp.groupby('sales_recruiter')['tempo_totale'].mean().reset_index()
+                veloce['tempo_totale'] = veloce['tempo_totale'].fillna(0)
+                veloce = veloce.sort_values(by='tempo_totale', ascending=True)
+                if veloce.empty:
+                    st.info("Nessun progetto completato per calcolare la velocità.")
+                else:
+                    fig2, ax2 = plt.subplots(figsize=(6,4))
+                    ax2.bar(veloce['sales_recruiter'], veloce['tempo_totale'], color='green')
+                    ax2.set_title("Tempo Medio (giorni) - Più basso = più veloce")
+                    ax2.set_xlabel("Recruiter")
+                    ax2.set_ylabel("Tempo Medio (giorni)")
+                    plt.xticks(rotation=45, ha='right')
+                    st.pyplot(fig2)
+
+                # (3) RECRUITER CON PIÙ BONUS
+                st.markdown("**3) Recruiter con più Bonus ottenuti** (4 stelle=300, 5 stelle=500)")
+                def calcola_bonus_tmp(stelle):
+                    if stelle == 4:
+                        return 300
+                    elif stelle == 5:
+                        return 500
+                    else:
+                        return 0
+                df_bonus = df_leader_filtered.copy()
+                df_bonus['bonus'] = df_bonus['recensione_stelle'].apply(calcola_bonus_tmp)
+                bonus_df = df_bonus.groupby('sales_recruiter')['bonus'].sum().reset_index()
+                bonus_df = bonus_df.sort_values(by='bonus', ascending=False)
+                if bonus_df.empty:
+                    st.info("Nessun bonus calcolato.")
+                else:
+                    fig3, ax3 = plt.subplots(figsize=(6,4))
+                    ax3.bar(bonus_df['sales_recruiter'], bonus_df['bonus'], color='orange')
+                    ax3.set_title("Bonus Totale Ottenuto")
+                    ax3.set_xlabel("Recruiter")
+                    ax3.set_ylabel("Bonus (€)")
+                    plt.xticks(rotation=45, ha='right')
+                    st.pyplot(fig3)
+
+                # (4) LEADERBOARD ANNUALE
+                st.markdown("**4) Leaderboard Annuale**")
+                st.markdown("### Filtro per Anno")
+                # Il filtro per l'anno è già stato fatto sopra
+
+                # Il codice per la classifica è già incluso sopra
 
     #######################################
     # 3. GESTISCI OPZIONI
