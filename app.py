@@ -372,9 +372,10 @@ def parse_date(date_str):
 # Definisci un dizionario di recruiter con username e password
 # In un ambiente di produzione, utilizza metodi di autenticazione sicuri
 recruiter_credentials = {
-    "mario.rossi": "password1",
-    "luca.bianchi": "password2",
-    "giulia.verdi": "password3"
+    "Juan.Sebastian": "password1",
+    "Paolo.Carnevale": "password2",
+    "Daniele.Martignano": "password3"
+    "Francesco.Picaro": "password4"
     # Aggiungi altri recruiter qui
 }
 
