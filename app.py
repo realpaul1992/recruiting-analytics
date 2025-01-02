@@ -449,7 +449,8 @@ elif scelta == "Dashboard":
 
             # Filtro per Mese e Anno
             st.markdown("### Filtro per Mese e Anno")
-            anno_selezionato = st.selectbox("Seleziona Anno", options=sorted(df['data_inizio_dt'].dt.year.unique()), index=len(sorted(df['data_inizio_dt'].dt.year.unique()))-1)
+            anni_disponibili = sorted(df['data_inizio_dt'].dt.year.dropna().unique())
+            anno_selezionato = st.selectbox("Seleziona Anno", options=anni_disponibili, index=len(anni_disponibili)-1)
             mesi_disponibili = sorted(df[df['data_inizio_dt'].dt.year == anno_selezionato]['data_inizio_dt'].dt.month.unique())
             mese_selezionato = st.selectbox("Seleziona Mese", options=mesi_disponibili, format_func=lambda x: datetime(1900, x, 1).strftime('%B'))
             
@@ -508,6 +509,7 @@ elif scelta == "Dashboard":
             cap_df = cap_df.merge(attivi_count, on='sales_recruiter', how='left').fillna(0)
             cap_df = cap_df.merge(df_capacity, on='sales_recruiter', how='left').fillna(5)
             cap_df['capacity'] = cap_df['capacity'].astype(int)
+            cap_df['Progetti Attivi'] = cap_df['Progetti Attivi'].astype(int)
             cap_df['Capacità Disponibile'] = cap_df['capacity'] - cap_df['Progetti Attivi']
             cap_df.loc[cap_df['Capacità Disponibile'] < 0, 'Capacità Disponibile'] = 0
 
@@ -587,6 +589,7 @@ elif scelta == "Dashboard":
             st.write("""
                 Esempio: 4 stelle => 300€, 5 stelle => 500€.
             """)
+            st.markdown("### Filtro per Mese e Anno")
             data_mese = st.date_input("Seleziona un Mese", value=datetime.today())
             mese_inizio = data_mese.replace(day=1)
             mese_fine = (mese_inizio + pd.offsets.MonthEnd(1)).date()
@@ -748,10 +751,9 @@ elif scelta == "Dashboard":
 
             # (4) LEADERBOARD MENSILE
             st.markdown("**4) Leaderboard Mensile**")
-
-            # Filtro per Mese e Anno
             st.markdown("### Filtro per Mese e Anno")
-            anno_leader = st.selectbox("Seleziona Anno", options=sorted(df['data_inizio_dt'].dt.year.unique()), index=len(sorted(df['data_inizio_dt'].dt.year.unique()))-1)
+            anni_leader = sorted(df['data_inizio_dt'].dt.year.dropna().unique())
+            anno_leader = st.selectbox("Seleziona Anno", options=anni_leader, index=len(anni_leader)-1)
             mesi_leader = sorted(df[df['data_inizio_dt'].dt.year == anno_leader]['data_inizio_dt'].dt.month.unique())
             mese_leader = st.selectbox("Seleziona Mese", options=mesi_leader, format_func=lambda x: datetime(1900, x, 1).strftime('%B'))
             
@@ -805,6 +807,6 @@ elif scelta == "Dashboard":
         Assicurati di navigare a quella pagina per gestire le tue opzioni.
         """)
 
-    #######################################
-    # FINE DEL FILE app.py
-    #######################################
+#######################################
+# FINE DEL FILE app.py
+#######################################
