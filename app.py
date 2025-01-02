@@ -697,9 +697,7 @@ elif scelta == "Dashboard":
 
             # **Aggiornamento del Testo per "Premio Annuale (Recensioni a 5 stelle)"**
             st.subheader("Premio Annuale (Recensioni a 5 stelle)")
-            st.markdown("""
-                **Il premio annuale secondo le statistiche dovrebbe andare a [Nome del Recruiter] che ha ricevuto il maggior numero di recensioni a 5 stelle.**
-            """)
+            # Rimosso il testo statico con il placeholder
 
             # Premiazione basata sulle recensioni a 5 stelle
             df_premio_annuale = df_bonus_totale[df_bonus_totale['bonus_totale'] >= 500]  # Considerando solo 5 stelle
