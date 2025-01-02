@@ -166,205 +166,203 @@ def calcola_bonus(stelle):
         return 0
 
 #######################################
-# GESTIONE BACKUP in ZIP (Esportazione + Ripristino)
+# DASHBOARD PER ADMIN
 #######################################
-
-def backup_database():
-    """
-    Esegue un "backup" esportando i dati di ciascuna tabella in un CSV
-    all’interno di un archivio ZIP nella cartella 'backup'.
-    Sovrascrive l'archivio ZIP esistente.
-    """
-    backup_dir = "backup"
-    if not os.path.exists(backup_dir):
-        os.makedirs(backup_dir)
-
-    backup_zip_path = os.path.join(backup_dir, "backup.zip")
+def admin_dashboard(df):
+    st.header("Dashboard Amministratore")
     
-    # Crea un nuovo archivio ZIP, sovrascrivendo quello esistente
-    with zipfile.ZipFile(backup_zip_path, 'w', zipfile.ZIP_DEFLATED) as backup_zip:
-        conn = get_connection()
-        c = conn.cursor()
+    # Creiamo le Tab
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        "Panoramica",
+        "Carico Proiettato / Previsione",
+        "Bonus e Premi",
+        "Backup",
+        "Altre Info",
+        "Classifica"
+    ])
 
-        # Legge l’elenco delle tabelle
-        c.execute("SHOW TABLES")
-        tables = c.fetchall()
+    ################################
+    # TAB 1: Panoramica
+    ################################
+    with tab1:
+        st.subheader("Tempo Medio Generale e per Recruiter/Settore")
 
-        st.info("Inizio backup MySQL in ZIP...")
+        # Filtro per Anno
+        st.markdown("### Filtro per Anno")
+        anni_disponibili = sorted(df['data_inizio_dt'].dt.year.dropna().unique())
+        if len(anni_disponibili) == 0:
+            st.warning("Nessun dato disponibile per i filtri.")
+            st.stop()
+        # Converti gli anni in interi
+        anni_disponibili = [int(y) for y in anni_disponibili]
+        anno_selezionato = st.selectbox("Seleziona Anno", options=anni_disponibili, index=len(anni_disponibili)-1, key='panoramica_anno')
+        
+        # Filtra i dati in base all'anno selezionato
+        try:
+            start_date = datetime(anno_selezionato, 1, 1)
+            end_date = datetime(anno_selezionato, 12, 31)
+        except TypeError as e:
+            st.error(f"Errore nella selezione di Anno: {e}")
+            st.stop()
 
-        for (table_name,) in tables:
-            # Query: SELECT * FROM <table_name>
-            c.execute(f"SELECT * FROM {table_name}")
-            rows = c.fetchall()
-            col_names = [desc[0] for desc in c.description]
+        df_filtered = df[
+            (df['data_inizio_dt'] >= pd.Timestamp(start_date)) &
+            (df['data_inizio_dt'] <= pd.Timestamp(end_date))
+        ]
 
-            df_table = pd.DataFrame(rows, columns=col_names)
-            csv_data = df_table.to_csv(index=False, encoding="utf-8")
+        if df_filtered.empty:
+            st.info("Nessun dato disponibile per l'anno selezionato.")
+        else:
+            # Tempo Medio Globale
+            df_comp = df_filtered[df_filtered['stato_progetto'] == 'Completato']
+            tempo_medio_globale = df_comp['tempo_totale'].dropna().mean() or 0
+            st.metric("Tempo Medio Globale (giorni)", round(tempo_medio_globale,2))
 
-            # Scrivi il CSV direttamente nell'archivio ZIP
-            backup_zip.writestr(f"{table_name}.csv", csv_data)
+            # Tempo medio per recruiter
+            rec_media = df_comp.groupby('sales_recruiter')['tempo_totale'].mean().reset_index()
+            rec_media['tempo_totale'] = rec_media['tempo_totale'].fillna(0).round(2)
+            fig_rec = px.bar(
+                rec_media,
+                x='sales_recruiter',
+                y='tempo_totale',
+                labels={'tempo_totale':'Giorni Medi'},
+                title='Tempo Medio di Chiusura per Recruiter'
+            )
+            st.plotly_chart(fig_rec)
 
-        conn.close()
-    
-    st.success("Backup completato: archivio ZIP creato in /backup/backup.zip.")
+            # Tempo medio per settore
+            sett_media = df_comp.groupby('settore')['tempo_totale'].mean().reset_index()
+            sett_media['tempo_totale'] = sett_media['tempo_totale'].fillna(0).round(2)
+            fig_sett = px.bar(
+                sett_media,
+                x='settore',
+                y='tempo_totale',
+                labels={'tempo_totale':'Giorni Medi'},
+                title='Tempo Medio di Chiusura per Settore'
+            )
+            st.plotly_chart(fig_sett)
 
-def restore_from_zip(zip_file):
-    """
-    Ripristina il database da un archivio ZIP contenente CSV delle tabelle.
-    - Estrae ogni CSV e ripristina la relativa tabella.
-    """
-    if not zipfile.is_zipfile(zip_file):
-        st.error("Il file caricato non è un archivio ZIP valido.")
-        return
+            st.subheader("Progetti Attivi (In corso + Bloccato)")
+            df_attivi = df_filtered[df_filtered['stato_progetto'].isin(["In corso", "Bloccato"])]
+            attivi_count = df_attivi.groupby('sales_recruiter').size().reset_index(name='Progetti Attivi')
+            fig_attivi = px.bar(
+                attivi_count,
+                x='sales_recruiter',
+                y='Progetti Attivi',
+                title='Numero di Progetti Attivi per Recruiter'
+            )
+            st.plotly_chart(fig_attivi)
 
-    with zipfile.ZipFile(zip_file, 'r') as backup_zip:
-        # Ottieni la lista dei file CSV nell'archivio
-        csv_files = [f for f in backup_zip.namelist() if f.endswith('.csv')]
+            st.subheader("Capacità di Carico e Over Capacity")
+            df_capacity = carica_recruiters_capacity()
+            recruiters_unici = df['sales_recruiter'].unique()
+            cap_df = pd.DataFrame({'sales_recruiter': recruiters_unici})
+            cap_df = cap_df.merge(attivi_count, on='sales_recruiter', how='left').fillna(0)
+            cap_df = cap_df.merge(df_capacity, on='sales_recruiter', how='left').fillna(5)
+            cap_df['capacity'] = cap_df['capacity'].astype(int)
+            cap_df['Progetti Attivi'] = cap_df['Progetti Attivi'].astype(int)
+            cap_df['Capacità Disponibile'] = cap_df['capacity'] - cap_df['Progetti Attivi']
+            cap_df.loc[cap_df['Capacità Disponibile'] < 0, 'Capacità Disponibile'] = 0
 
-        if not csv_files:
-            st.error("L'archivio ZIP non contiene file CSV di backup.")
+            overcap = cap_df[cap_df['Capacità Disponibile'] == 0]
+            if not overcap.empty:
+                st.warning("Attenzione! I seguenti Recruiter sono a capacità 0:")
+                st.write(overcap[['sales_recruiter','Progetti Attivi','capacity','Capacità Disponibile']])
+
+            fig_carico = px.bar(
+                cap_df,
+                x='sales_recruiter',
+                y=['Progetti Attivi','Capacità Disponibile'],
+                barmode='group',
+                title='Capacità di Carico per Recruiter'
+            )
+            st.plotly_chart(fig_carico)
+
+    #######################################
+    # DASHBOARD PERSONALE PER RECRUITER
+    #######################################
+    def recruiter_dashboard_personale(recruiter_username, df):
+        df_recruiter = df[df['sales_recruiter'] == recruiter_username]
+        
+        if df_recruiter.empty:
+            st.info("Nessun progetto assegnato a questo recruiter.")
             return
-
-        conn = get_connection()
-        c = conn.cursor()
-
-        st.info("Inizio ripristino database da ZIP...")
-
-        for csv_file in csv_files:
-            table_name = os.path.splitext(os.path.basename(csv_file))[0]
-            st.write(f"Ripristino tabella '{table_name}'...")
-
-            # Leggi il contenuto del CSV
-            with backup_zip.open(csv_file) as f:
-                df = pd.read_csv(f)
-
-            # Esegui TRUNCATE sulla tabella
-            try:
-                c.execute(f"TRUNCATE TABLE {table_name}")
-            except pymysql.Error as e:
-                st.error(f"Errore TRUNCATE {table_name}: {e}")
-                conn.close()
-                return
-
-            # Prepara le colonne e i placeholder per l'INSERT
-            col_names = df.columns.tolist()
-            placeholders = ",".join(["%s"] * len(col_names))
-            col_list_str = ",".join(col_names)
-            insert_query = f"INSERT INTO {table_name} ({col_list_str}) VALUES ({placeholders})"
-
-            # Inserisci le righe
-            try:
-                for row in df.itertuples(index=False, name=None):
-                    c.execute(insert_query, row)
-            except pymysql.Error as e:
-                st.error(f"Errore durante l'INSERT nella tabella {table_name}: {e}")
-                conn.rollback()
-                conn.close()
-                return
-
-        conn.commit()
-        conn.close()
-        st.success("Ripristino completato con successo da ZIP.")
-
-#######################################
-# CAPACITA' PER RECRUITER
-#######################################
-def carica_recruiters_capacity():
-    conn = get_connection()
-    c = conn.cursor()
-    query = '''
-        SELECT r.nome AS sales_recruiter,
-               IFNULL(rc.capacity_max, 5) AS capacity
-        FROM recruiters r
-        LEFT JOIN recruiter_capacity rc ON r.id = rc.recruiter_id
-        ORDER BY r.nome
-    '''
-    c.execute(query)
-    rows = c.fetchall()
-    df_capacity = pd.DataFrame(rows, columns=['sales_recruiter', 'capacity'])
-    conn.close()
-    return df_capacity
-
-#######################################
-# FUNZIONE PER CALCOLARE LEADERBOARD MENSILE
-#######################################
-def calcola_leaderboard_mensile(df, start_date, end_date):
-    df_temp = df.copy()
-    df_temp['data_inizio_dt'] = pd.to_datetime(df_temp['data_inizio'], errors='coerce')
-    df_temp['recensione_stelle'] = df_temp['recensione_stelle'].fillna(0).astype(int)
-
-    # bonus da recensioni
-    def bonus_stelle(stelle):
-        if stelle == 4:
-            return 300
-        elif stelle == 5:
-            return 500
-        return 0
-    
-    df_temp['bonus'] = df_temp['recensione_stelle'].apply(bonus_stelle)
-
-    mask = (
-        (df_temp['stato_progetto'] == 'Completato') &
-        (df_temp['data_inizio_dt'] >= pd.Timestamp(start_date)) &
-        (df_temp['data_inizio_dt'] <= pd.Timestamp(end_date))
-    )
-    df_filtro = df_temp[mask].copy()
-
-    if df_filtro.empty:
-        return pd.DataFrame([], columns=[
-            'sales_recruiter','completati','tempo_medio','bonus_totale','punteggio','badge'
-        ])
-
-    group = df_filtro.groupby('sales_recruiter')
-    completati = group.size().reset_index(name='completati')
-    tempo_medio = group['tempo_totale'].mean().reset_index(name='tempo_medio')
-    bonus_sum = group['bonus'].sum().reset_index(name='bonus_totale')
-
-    leaderboard = (
-        completati
-        .merge(tempo_medio, on='sales_recruiter', how='left')
-        .merge(bonus_sum, on='sales_recruiter', how='left')
-    )
-
-    leaderboard['tempo_medio'] = leaderboard['tempo_medio'].fillna(0)
-    leaderboard['bonus_totale'] = leaderboard['bonus_totale'].fillna(0)
-    leaderboard['punteggio'] = (
-        leaderboard['completati'] * 10
-        + leaderboard['bonus_totale']
-        + leaderboard['tempo_medio'].apply(lambda x: max(0, 30 - x))
-    )
-
-    def assegna_badge(n):
-        if n >= 20:
-            return "Gold"
-        elif n >= 10:
-            return "Silver"
-        elif n >= 5:
-            return "Bronze"
-        return ""
-    
-    leaderboard['badge'] = leaderboard['completati'].apply(assegna_badge)
-    leaderboard = leaderboard.sort_values('punteggio', ascending=False)
-    return leaderboard
-
-#######################################
-# UTILITIES PER FORMATTARE LE DATE
-#######################################
-def format_date_display(x):
-    """Formatta le date dal formato 'YYYY-MM-DD' a 'DD/MM/YYYY'."""
-    if not x:
-        return ""
-    try:
-        return datetime.strptime(x, '%Y-%m-%d').strftime('%d/%m/%Y')
-    except ValueError:
-        return x  # Se il formato non è corretto o è vuoto, lascio inalterato
-
-def parse_date(date_str):
-    """Converti una stringa di data in un oggetto datetime.date (assumendo formato 'YYYY-MM-DD')."""
-    try:
-        return datetime.strptime(date_str, '%Y-%m-%d').date()
-    except (ValueError, TypeError):
-        return None
+        
+        st.header(f"Dashboard di {recruiter_username}")
+        
+        # Metric: Bonus ricevuti
+        df_recruiter['bonus'] = df_recruiter['recensione_stelle'].fillna(0).astype(int).apply(calcola_bonus)
+        total_bonus = df_recruiter['bonus'].sum()
+        st.metric("Bonus Totale (€)", total_bonus)
+        
+        # Metric: Tempo medio di chiusura totale
+        df_completed = df_recruiter[df_recruiter['stato_progetto'] == 'Completato']
+        average_closure_time = df_completed['tempo_totale'].mean() if not df_completed.empty else 0
+        st.metric("Tempo Medio di Chiusura Totale (giorni)", round(average_closure_time, 2))
+        
+        # Metric: Numero di progetti attivi
+        active_projects = df_recruiter[df_recruiter['stato_progetto'].isin(["In corso", "Bloccato"])].shape[0]
+        st.metric("Numero di Progetti Attivi", active_projects)
+        
+        # Tempo medio di chiusura per settore
+        average_closure_time_sector = df_completed.groupby('settore')['tempo_totale'].mean().reset_index()
+        st.subheader("Tempo Medio di Chiusura per Settore")
+        if not average_closure_time_sector.empty:
+            fig_sector = px.bar(
+                average_closure_time_sector,
+                x='settore',
+                y='tempo_totale',
+                labels={'settore': 'Settore', 'tempo_totale': 'Giorni Medi'},
+                title='Tempo Medio di Chiusura per Settore'
+            )
+            st.plotly_chart(fig_sector)
+        else:
+            st.info("Nessun progetto completato per calcolare il tempo medio per settore.")
+        
+        # Grafico Bonus per Cliente
+        st.subheader("Bonus Ricevuti per Cliente")
+        bonus_per_cliente = df_recruiter.groupby('cliente')['bonus'].sum().reset_index()
+        fig_bonus_cliente = px.bar(
+            bonus_per_cliente,
+            x='cliente',
+            y='bonus',
+            labels={'cliente': 'Cliente', 'bonus': 'Bonus (€)'},
+            title='Bonus per Cliente'
+        )
+        st.plotly_chart(fig_bonus_cliente)
+        
+        # Grafico Recensioni a 5 Stelle
+        st.subheader("Recensioni a 5 Stelle")
+        df_recruiter_5 = df_recruiter[df_recruiter['recensione_stelle'] == 5]
+        if not df_recruiter_5.empty:
+            rec_5_count = df_recruiter_5.groupby('cliente').size().reset_index(name='5_star_reviews')
+            fig_rec_5 = px.bar(
+                rec_5_count,
+                x='cliente',
+                y='5_star_reviews',
+                labels={'cliente': 'Cliente', '5_star_reviews': 'Recensioni 5 Stelle'},
+                title='Recensioni a 5 Stelle per Cliente'
+            )
+            st.plotly_chart(fig_rec_5)
+        else:
+            st.info("Nessuna recensione a 5 stelle per questo recruiter.")
+        
+        # Grafico Avvicinamento al Premio Annuale di 1000€
+        st.subheader("Avvicinamento al Premio Annuale di 1000€")
+        bonus_rimanente = max(0, 1000 - total_bonus)
+        fig_premio = px.bar(
+            x=["Bonus Attuale", "Bonus Mancante"],
+            y=[total_bonus, bonus_rimanente],
+            labels={'x': 'Categoria', 'y': '€'},
+            title='Avvicinamento al Premio Annuale di 1000€',
+            text=[total_bonus, bonus_rimanente]
+        )
+        fig_premio.update_traces(textposition='auto', marker_color=['green', 'red'])
+        st.plotly_chart(fig_premio)
+        
+        # Tabella dei Progetti Assegnati
+        st.subheader("Progetti Assegnati")
+        st.dataframe(df_recruiter[['cliente', 'settore', 'stato_progetto', 'data_inizio', 'recensione_stelle', 'bonus']])
 
 #######################################
 # SISTEMA DI AUTENTICAZIONE
@@ -373,7 +371,7 @@ def parse_date(date_str):
 # In un ambiente di produzione, utilizza metodi di autenticazione sicuri
 user_credentials = {
     "admin": {"password": "adminpass", "role": "admin"},
-    "Juan.Sebastian": {"password": "password1", "role": "recruiter"},
+    "mario.rossi": {"password": "password1", "role": "recruiter"},
     "luca.bianchi": {"password": "password2", "role": "recruiter"},
     "giulia.verdi": {"password": "password3", "role": "recruiter"},
     # Aggiungi altri recruiter qui
@@ -487,13 +485,10 @@ if st.session_state['role'] == "admin":
     # 2. DASHBOARD (admin)
     #######################################
     elif scelta == "Dashboard":
-        st.header("Dashboard di Controllo")
         df = carica_dati_completo()
-        
         if df.empty:
             st.info("Nessun progetto disponibile nel DB.")
         else:
-            # Dashboard Amministratore
             admin_dashboard(df)
 
     #######################################
@@ -515,4 +510,5 @@ elif st.session_state['role'] == "recruiter":
     #######################################
     if scelta_recruiter == "Dashboard Personale":
         recruiter_username = st.session_state['username']
-        recruiter_dashboard_personale(recruiter_username, carica_dati_completo())
+        df = carica_dati_completo()
+        recruiter_dashboard_personale(recruiter_username, df)
