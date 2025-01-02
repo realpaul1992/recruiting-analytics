@@ -373,7 +373,7 @@ def parse_date(date_str):
 # In un ambiente di produzione, utilizza metodi di autenticazione sicuri
 user_credentials = {
     "admin": {"password": "adminpass", "role": "admin"},
-    "Juan.Sebastian": {"password": "password1", "role": "recruiter"},
+    "mario.rossi": {"password": "password1", "role": "recruiter"},
     "luca.bianchi": {"password": "password2", "role": "recruiter"},
     "giulia.verdi": {"password": "password3", "role": "recruiter"},
     # Aggiungi altri recruiter qui
@@ -391,17 +391,21 @@ def login():
             st.session_state['username'] = username
             st.session_state['role'] = user_credentials[username]["role"]
             st.sidebar.success("Login effettuato con successo!")
-            # Non usare st.experimental_rerun(), Streamlit ricarica automaticamente
+            # No rerun
         else:
             st.sidebar.error("Username o password errati.")
 
 def logout():
-    if st.sidebar.button("Logout"):
-        for key in ['logged_in', 'username', 'role']:
-            if key in st.session_state:
-                del st.session_state[key]
-        st.sidebar.success("Sei stato disconnesso.")
-        # Non usare st.experimental_rerun(), Streamlit ricarica automaticamente
+    # The Logout button should only appear if the user is logged in
+    # Also, ensure it's not recreated multiple times
+    if 'logged_in' in st.session_state and st.session_state['logged_in']:
+        if st.sidebar.button("Logout", key="logout_button"):
+            for key in ['logged_in', 'username', 'role']:
+                if key in st.session_state:
+                    del st.session_state[key]
+            st.sidebar.success("Sei stato disconnesso.")
+            # After logout, stop execution to prevent access to role-based content
+            st.stop()
 
 #######################################
 # GESTIONE LOGIN
@@ -928,14 +932,10 @@ if not st.session_state['logged_in']:
     login()
     st.stop()
 
-#######################################
 # GESTIONE LOGOUT
-#######################################
 logout()
 
-#######################################
 # GESTIONE NAVIGAZIONE BASATA SUL RUOLO
-#######################################
 if st.session_state['role'] == "admin":
     scelta = st.sidebar.radio("Vai a", ["Inserisci Dati", "Dashboard", "Gestisci Opzioni"])
     
@@ -1022,7 +1022,5 @@ elif st.session_state['role'] == "recruiter":
     # DASHBOARD PERSONALE (recruiter)
     #######################################
     if scelta_recruiter == "Dashboard Personale":
-        st.sidebar.markdown("---")
-        st.sidebar.subheader("Dashboard Personale")
         recruiter_username = st.session_state['username']
         recruiter_dashboard_personale(recruiter_username, carica_dati_completo())
