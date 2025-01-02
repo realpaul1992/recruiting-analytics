@@ -70,9 +70,6 @@ def carica_dati_completo():
     
     return df
 
-#######################################
-# DEFINIZIONE DELLA FUNZIONE calcola_bonus
-#######################################
 def calcola_bonus(stelle):
     """
     Calcola il bonus in base al numero di stelle della recensione.
