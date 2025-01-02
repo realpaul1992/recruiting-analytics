@@ -374,8 +374,8 @@ def parse_date(date_str):
 recruiter_credentials = {
     "Juan.Sebastian": "password1",
     "Paolo.Carnevale": "password2",
-    "Daniele.Martignano": "password3"
-    "Francesco.Picaro": "password4"
+    "Daniele.Martignano": "password3",
+    "Francesco.Picaro": "passsword4"
     # Aggiungi altri recruiter qui
 }
 
