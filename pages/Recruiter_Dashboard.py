@@ -1,4 +1,4 @@
-# pages/Recruiter Dashboard.py
+# pages/Recruiter_Dashboard.py
 
 import streamlit as st
 import pandas as pd
@@ -88,7 +88,7 @@ def calcola_bonus(stelle):
         return 0
 
 # Leggi i parametri della query
-query_params = st.query_params
+query_params = st.experimental_get_query_params()
 st.write("Parametri della Query:", query_params)  # Debugging: Mostra i parametri ricevuti
 if 'recruiter_id' in query_params:
     recruiter_id = query_params['recruiter_id'][0]
