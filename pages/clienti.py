@@ -599,9 +599,9 @@ with tab1:
 
             st.header("Aggiorna / Elimina Progetto")
 
-            settore_attuale = settori_dict.get(progetto['settore_id'], None)
-            pm_attuale = project_managers_dict.get(progetto['project_manager_id'], None)
-            rec_attuale = recruiters_dict.get(progetto['sales_recruiter_id'], None)
+            settore_attuale = settori_dict.get(progetto['settore_id'], "Sconosciuto")
+            pm_attuale = project_managers_dict.get(progetto['project_manager_id'], "Sconosciuto")
+            rec_attuale = recruiters_dict.get(progetto['sales_recruiter_id'], "Sconosciuto")
 
             col_upd, col_del = st.columns([3,1])
             with col_upd:
@@ -866,7 +866,7 @@ with tab2:
                 end_date=data_fine_parsed.strftime('%Y-%m-%d') if data_fine_parsed else None
             )
             st.success("Progetto continuativo inserito con successo!")
-            st.experimental_rerun()  # Rimuovere questa riga se causa errori
+            st.session_state.progetto_selezionato = None  # Reset dello stato di selezione
 
     st.write("---")
     st.subheader("Visualizza Progetti Continuativi Esistenti")
