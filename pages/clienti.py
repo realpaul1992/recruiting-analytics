@@ -2,15 +2,12 @@
 
 import streamlit as st
 import pandas as pd
-import pymysql
-from datetime import datetime, date
+import pymysql  # <--- sostituisce sqlite3
+from datetime import datetime
+
 import sys
 import os
-import zipfile
-from io import BytesIO
-
-# Aggiungi il percorso per importare utils.py
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils import format_date_display, parse_date
 
 ####################################
@@ -23,8 +20,7 @@ def get_connection():
         port=14718,
         user="root",
         password="GoHrUNytXgoikyAkbwYQpYLnfuQVQdBM",
-        database="railway",
-        cursorclass=pymysql.cursors.DictCursor  # Per ottenere risultati come dizionari
+        database="railway"
     )
 
 def carica_settori_db():
@@ -51,16 +47,7 @@ def carica_recruiters_db():
     conn.close()
     return rec
 
-def carica_clienti_db():
-    conn = get_connection()
-    c = conn.cursor()
-    c.execute("SELECT DISTINCT cliente, settore_id FROM progetti ORDER BY cliente ASC")
-    clienti = c.fetchall()
-    conn.close()
-    return clienti
-
-def cerca_progetti(id_progetto=None, nome_cliente=None, is_continuative=None):
-    """Cerca progetti nel database. Filtra per tipo se specificato."""
+def cerca_progetti(id_progetto=None, nome_cliente=None):
     conn = get_connection()
     c = conn.cursor()
     query = """
@@ -76,12 +63,7 @@ def cerca_progetti(id_progetto=None, nome_cliente=None, is_continuative=None):
             p.tempo_totale,
             p.recensione_stelle,
             p.recensione_data,
-            p.tempo_previsto,
-            p.is_continuative,
-            p.number_recruiters,
-            p.frequency,
-            p.start_date,
-            p.end_date
+            p.tempo_previsto
         FROM progetti p
         WHERE 1=1
     """
@@ -92,9 +74,6 @@ def cerca_progetti(id_progetto=None, nome_cliente=None, is_continuative=None):
     if nome_cliente:
         query += " AND p.cliente LIKE %s"
         params.append(f"%{nome_cliente}%")
-    if is_continuative is not None:
-        query += " AND p.is_continuative = %s"
-        params.append(is_continuative)
 
     c.execute(query, tuple(params))
     risultati = c.fetchall()
@@ -112,20 +91,12 @@ def aggiorna_progetto(
     data_fine,
     recensione_stelle,
     recensione_data,
-    tempo_previsto,
-    is_continuative=False,
-    number_recruiters=0,
-    frequency=None,
-    start_date=None,
-    end_date=None
+    tempo_previsto
 ):
-    """Aggiorna un progetto nel database."""
     conn = get_connection()
     c = conn.cursor()
 
-    if is_continuative and start_date and data_fine:
-        tempo_totale = (data_fine - start_date).days
-    elif data_inizio and data_fine:
+    if data_inizio and data_fine:
         tempo_totale = (data_fine - data_inizio).days
     else:
         tempo_totale = None
@@ -133,10 +104,6 @@ def aggiorna_progetto(
     data_inizio_str = data_inizio.strftime('%Y-%m-%d') if data_inizio else None
     data_fine_str = data_fine.strftime('%Y-%m-%d') if data_fine else None
     recensione_data_str = recensione_data.strftime('%Y-%m-%d') if recensione_data else None
-
-    # Formatta 'stato_progetto' correttamente
-    if stato_progetto:
-        stato_progetto = stato_progetto.strip().title()
 
     query = """
         UPDATE progetti
@@ -151,12 +118,7 @@ def aggiorna_progetto(
             tempo_totale = %s,
             recensione_stelle = %s,
             recensione_data = %s,
-            tempo_previsto = %s,
-            is_continuative = %s,
-            number_recruiters = %s,
-            frequency = %s,
-            start_date = %s,
-            end_date = %s
+            tempo_previsto = %s
         WHERE id = %s
     """
     c.execute(query, (
@@ -171,854 +133,295 @@ def aggiorna_progetto(
         recensione_stelle,
         recensione_data_str,
         tempo_previsto,
-        is_continuative,
-        number_recruiters,
-        frequency,
-        start_date,
-        end_date,
         id_progetto
     ))
     conn.commit()
     conn.close()
 
 def cancella_progetto(id_progetto):
-    """Cancella un progetto dal database."""
     conn = get_connection()
     c = conn.cursor()
     c.execute("DELETE FROM progetti WHERE id = %s", (id_progetto,))
     conn.commit()
     conn.close()
 
-def carica_dati_completo(is_continuative=None):
-    """Carica tutti i progetti dal database. Filtra per tipo se specificato."""
+def carica_dati_completo():
     conn = get_connection()
     c = conn.cursor()
-    query = "SELECT * FROM progetti"
-    if is_continuative is not None:
-        query += " WHERE is_continuative = %s"
-        c.execute(query, (is_continuative,))
-    else:
-        c.execute(query)
+    c.execute("SELECT * FROM progetti")
     rows = c.fetchall()
     col_names = [desc[0] for desc in c.description]
     conn.close()
 
     df = pd.DataFrame(rows, columns=col_names)
 
-    # Converti 'tempo_previsto' a numerico
+    # === Esempio di Fix: convertiamo 'tempo_previsto' a numerico ===
     if "tempo_previsto" in df.columns:
         df["tempo_previsto"] = pd.to_numeric(df["tempo_previsto"], errors="coerce")
         df["tempo_previsto"] = df["tempo_previsto"].fillna(0).astype(int)
+    # ===============================================================
 
     return df
 
 ####################################
-# Funzioni per Progetti Continuativi
+# Dizionari e Layout
 ####################################
-
-def inserisci_progetto_continuativo(
-    cliente,
-    settore_id,
-    project_manager_id,
-    sales_recruiter_id,
-    stato_progetto,
-    data_inizio,
-    tempo_previsto,
-    is_continuative,
-    number_recruiters,
-    frequency,
-    start_date,
-    end_date
-):
-    """Inserisce un nuovo progetto continuativo nel database."""
-    conn = get_connection()
-    c = conn.cursor()
-
-    # Valori di default
-    data_fine = None
-    tempo_totale = None
-    recensione_stelle = None
-    recensione_data = None
-
-    # Formatta 'stato_progetto' correttamente
-    if stato_progetto:
-        stato_progetto = stato_progetto.strip().title()
-
-    query = """
-        INSERT INTO progetti (
-            cliente,
-            settore_id,
-            project_manager_id,
-            sales_recruiter_id,
-            stato_progetto,
-            data_inizio,
-            data_fine,
-            tempo_totale,
-            recensione_stelle,
-            recensione_data,
-            tempo_previsto,
-            is_continuative,
-            number_recruiters,
-            frequency,
-            start_date,
-            end_date
-        )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-    """
-    c.execute(query, (
-        cliente,
-        settore_id,
-        project_manager_id,
-        sales_recruiter_id,
-        stato_progetto,
-        data_inizio,
-        data_fine,
-        tempo_totale,
-        recensione_stelle,
-        recensione_data,
-        tempo_previsto,
-        is_continuative,
-        number_recruiters,
-        frequency,
-        start_date,
-        end_date
-    ))
-    progetto_id = c.lastrowid  # Ottieni l'ID del progetto appena inserito
-    conn.commit()
-    conn.close()
-
-    st.success("Progetto continuativo inserito con successo!")
-
-    # Assegna automaticamente i recruiter se necessario
-    if is_continuative and number_recruiters > 0:
-        assegna_recruiters_a_progetto_continuativo(progetto_id, number_recruiters)
-
-    backup_database()
-    return progetto_id
-
-def assegna_recruiters_a_progetto_continuativo(progetto_id, number_recruiters):
-    """
-    Assegna automaticamente i recruiter disponibili a un progetto continuativo.
-    """
-    conn = get_connection()
-    c = conn.cursor()
-
-    try:
-        # Trova i recruiter con capacità disponibile
-        c.execute("""
-            SELECT r.id, r.nome, IFNULL(rc.capacity_max, 5) as capacity
-            FROM recruiters r
-            LEFT JOIN recruiter_capacity rc ON r.id = rc.recruiter_id
-            WHERE (rc.capacity_max IS NULL OR rc.capacity_max > 0)
-            ORDER BY r.nome ASC
-            LIMIT %s
-        """, (number_recruiters,))
-        available_recruiters = c.fetchall()
-
-        if len(available_recruiters) < number_recruiters:
-            st.warning("Non ci sono abbastanza recruiter disponibili per assegnare al progetto continuativo.")
-        else:
-            for rec in available_recruiters:
-                rec_id = rec['id']
-                # Assegna il recruiter al progetto
-                c.execute("""
-                    UPDATE progetti
-                    SET sales_recruiter_id = %s
-                    WHERE id = %s
-                """, (rec_id, progetto_id))
-
-                # Aggiorna la capacità
-                c.execute("""
-                    UPDATE recruiter_capacity
-                    SET capacity_max = capacity_max - 1
-                    WHERE recruiter_id = %s
-                """, (rec_id,))
-
-            conn.commit()
-            st.success(f"{len(available_recruiters)} recruiter assegnati al progetto continuativo.")
-    except pymysql.Error as e:
-        conn.rollback()
-        st.error(f"Errore durante l'assegnazione dei recruiter: {e}")
-    finally:
-        conn.close()
-
-def carica_progetti_continuativi_db():
-    """
-    Carica i progetti continuativi dal database.
-    """
-    return carica_dati_completo(is_continuative=1)
-
-####################################
-# DEFINIZIONE DELLE FUNZIONI CRUD
-####################################
-
-# Le funzioni per Riunioni, Referrals, Formazione e Candidati rimangono invariate
-# ...
-
-####################################
-# GESTIONE BACKUP in ZIP (Esportazione + Ripristino)
-#######################################
-
-def backup_database():
-    """
-    Esegue un "backup" esportando i dati di ciascuna tabella in un CSV
-    all’interno di un archivio ZIP nella cartella 'backup'.
-    Sovrascrive l'archivio ZIP esistente.
-    """
-    backup_dir = "backup"
-    if not os.path.exists(backup_dir):
-        os.makedirs(backup_dir)
-
-    backup_zip_path = os.path.join(backup_dir, "backup.zip")
-    
-    # Crea un nuovo archivio ZIP, sovrascrivendo quello esistente
-    with zipfile.ZipFile(backup_zip_path, 'w', zipfile.ZIP_DEFLATED) as backup_zip:
-        conn = get_connection()
-        c = conn.cursor()
-
-        # Legge l’elenco delle tabelle
-        c.execute("SHOW TABLES")
-        tables = [list(table.values())[0] for table in c.fetchall()]
-
-        st.info("Inizio backup MySQL in ZIP...")
-
-        for table_name in tables:
-            # Query: SELECT * FROM <table_name>
-            c.execute(f"SELECT * FROM {table_name}")
-            rows = c.fetchall()
-            if not rows:
-                st.warning(f"Nessun dato trovato nella tabella {table_name}.")
-                continue
-            col_names = rows[0].keys()
-
-            df_table = pd.DataFrame(rows)
-            csv_data = df_table.to_csv(index=False, encoding="utf-8")
-
-            # Scrivi il CSV direttamente nell'archivio ZIP
-            backup_zip.writestr(f"{table_name}.csv", csv_data)
-
-        conn.close()
-    
-    st.success("Backup completato: archivio ZIP creato in /backup/backup.zip.")
-
-def restore_from_zip(zip_file):
-    """
-    Ripristina il database da un archivio ZIP contenente CSV delle tabelle.
-    - Estrae ogni CSV e ripristina la relativa tabella.
-    """
-    if not zipfile.is_zipfile(zip_file):
-        st.error("Il file caricato non è un archivio ZIP valido.")
-        return
-
-    with zipfile.ZipFile(zip_file, 'r') as backup_zip:
-        # Ottieni la lista dei file CSV nell'archivio
-        csv_files = [f for f in backup_zip.namelist() if f.endswith('.csv')]
-
-        if not csv_files:
-            st.error("L'archivio ZIP non contiene file CSV di backup.")
-            return
-
-        conn = get_connection()
-        c = conn.cursor()
-
-        st.info("Inizio ripristino database da ZIP...")
-
-        for csv_file in csv_files:
-            table_name = os.path.splitext(os.path.basename(csv_file))[0]
-            st.write(f"Ripristino tabella '{table_name}'...")
-
-            # Leggi il contenuto del CSV
-            with backup_zip.open(csv_file) as f:
-                df = pd.read_csv(f)
-
-            # Esegui TRUNCATE sulla tabella
-            try:
-                c.execute(f"TRUNCATE TABLE {table_name}")
-            except pymysql.Error as e:
-                st.error(f"Errore TRUNCATE {table_name}: {e}")
-                conn.close()
-                return
-
-            # Prepara le colonne e i placeholder per l'INSERT
-            col_names = df.columns.tolist()
-            placeholders = ",".join(["%s"] * len(col_names))
-            col_list_str = ",".join(col_names)
-            insert_query = f"INSERT INTO {table_name} ({col_list_str}) VALUES ({placeholders})"
-
-            # Inserisci le righe
-            try:
-                for row in df.itertuples(index=False, name=None):
-                    c.execute(insert_query, row)
-            except pymysql.Error as e:
-                st.error(f"Errore durante l'INSERT nella tabella {table_name}: {e}")
-                conn.rollback()
-                conn.close()
-                return
-
-        conn.commit()
-        conn.close()
-        st.success("Ripristino completato con successo da ZIP.")
-
-####################################
-# CAPACITA' PER RECRUITER
-#######################################
-
-def carica_recruiters_capacity():
-    """
-    Restituisce un DataFrame con recruiter e la loro capacità.
-    """
-    conn = get_connection()
-    c = conn.cursor()
-    query = '''
-        SELECT r.id, r.nome AS sales_recruiter,
-               IFNULL(rc.capacity_max, 5) AS capacity
-        FROM recruiters r
-        LEFT JOIN recruiter_capacity rc ON r.id = rc.recruiter_id
-        ORDER BY r.nome
-    '''
-    c.execute(query)
-    rows = c.fetchall()
-    conn.close()
-    return pd.DataFrame(rows, columns=['id', 'sales_recruiter', 'capacity'])
-
-def aggiorna_capacity_recruiter(recruiter_id, nuova_capacity):
-    """Aggiorna la capacità di un recruiter."""
-    conn = get_connection()
-    c = conn.cursor()
-    query = """
-        INSERT INTO recruiter_capacity (recruiter_id, capacity_max)
-        VALUES (%s, %s)
-        ON DUPLICATE KEY UPDATE capacity_max = VALUES(capacity_max)
-    """
-    c.execute(query, (recruiter_id, nuova_capacity))
-    conn.commit()
-    conn.close()
-    st.success(f"Capacità per Recruiter ID {recruiter_id} aggiornata a {nuova_capacity}.")
-    backup_database()
-
-####################################
-# CONFIG E LAYOUT
-#######################################
 
 STATI_PROGETTO = ["Completato", "In corso", "Bloccato"]
 
 settori_db = carica_settori_db()
 project_managers_db = carica_project_managers_db()
 recruiters_db = carica_recruiters_db()
-clienti_db = carica_clienti_db()
 
-settori_dict = {row['id']: row['nome'] for row in settori_db}
+settori_dict = {row[0]: row[1] for row in settori_db}
 settori_dict_reverse = {v: k for k, v in settori_dict.items()}
 
-project_managers_dict = {row['id']: row['nome'] for row in project_managers_db}
+project_managers_dict = {row[0]: row[1] for row in project_managers_db}
 project_managers_dict_reverse = {v: k for k, v in project_managers_dict.items()}
 
-recruiters_dict = {row['id']: row['nome'] for row in recruiters_db}
+recruiters_dict = {row[0]: row[1] for row in recruiters_db}
 recruiters_dict_reverse = {v: k for k, v in recruiters_dict.items()}
 
 if 'progetto_selezionato' not in st.session_state:
     st.session_state.progetto_selezionato = None
 
-if 'update_continuativo' not in st.session_state:
-    st.session_state.update_continuativo = None
-
 st.title("Gestione Clienti")
 
-# Creiamo le Tabs per differenziare le sezioni
-tab1, tab2 = st.tabs(["Gestione Progetti", "Gestione Progetti Continuativi"])
+st.header("Cerca Progetto")
 
-####################################
-# TAB 1: Gestione Progetti (Una Tantum)
-####################################
-with tab1:
-    st.header("Cerca Progetto Una Tantum")
+with st.form("form_cerca_progetto"):
+    id_progetto_str = st.text_input("ID Progetto (lascia vuoto se non vuoi specificare)")
+    nome_cliente = st.text_input("Nome Cliente")
+    submit_cerca = st.form_submit_button("Cerca")
 
-    with st.form("form_cerca_progetto"):
-        id_progetto_str = st.text_input("ID Progetto (lascia vuoto se non vuoi specificare)")
-        nome_cliente = st.text_input("Nome Cliente")
-        submit_cerca = st.form_submit_button("Cerca")
-
-    if submit_cerca:
-        if not id_progetto_str and not nome_cliente:
-            st.error("Inserisci almeno l'ID o il nome del cliente per la ricerca.")
-        else:
-            id_progetto = int(id_progetto_str) if id_progetto_str.isdigit() else None
-            risultati = cerca_progetti(id_progetto=id_progetto, nome_cliente=nome_cliente.strip() or None, is_continuative=0)
-            if risultati:
-                columns = [
-                    'id','cliente','settore_id','project_manager_id','sales_recruiter_id',
-                    'stato_progetto','data_inizio','data_fine','tempo_totale',
-                    'recensione_stelle','recensione_data','tempo_previsto'
-                ]
-                df_risultati = pd.DataFrame(risultati, columns=columns)
-
-                # Mappa ID -> nomi
-                df_risultati['settore'] = df_risultati['settore_id'].map(settori_dict)
-                df_risultati['project_manager'] = df_risultati['project_manager_id'].map(project_managers_dict)
-                df_risultati['sales_recruiter'] = df_risultati['sales_recruiter_id'].map(recruiters_dict)
-
-                # Format date
-                df_risultati['data_inizio'] = df_risultati['data_inizio'].apply(format_date_display)
-                df_risultati['data_fine']   = df_risultati['data_fine'].apply(format_date_display)
-                df_risultati['recensione_data'] = df_risultati['recensione_data'].apply(format_date_display)
-
-                df_risultati['stato_progetto'] = df_risultati['stato_progetto'].fillna("")
-                df_risultati['recensione_stelle'] = df_risultati['recensione_stelle'].fillna(0).astype(int)
-                df_risultati['tempo_previsto'] = df_risultati['tempo_previsto'].fillna(0).astype(int)
-
-                st.write("**Dati recuperati:**")
-                st.dataframe(df_risultati)
-
-                st.header("Aggiorna Progetto Selezionato")
-                progetto_scelto = st.selectbox(
-                    "Seleziona ID Progetto da Aggiornare",
-                    options=df_risultati['id'].tolist()
-                )
-                st.session_state.progetto_selezionato = progetto_scelto
-            else:
-                st.info("Nessun progetto trovato con i criteri inseriti.")
-
-    if st.session_state.progetto_selezionato:
-        row_list = cerca_progetti(id_progetto=st.session_state.progetto_selezionato, is_continuative=0)
-        if not row_list:
-            st.error("Progetto non trovato. Forse è stato eliminato?")
-            st.session_state.progetto_selezionato = None
-        else:
-            progetto = row_list[0]
-
-            st.header("Aggiorna / Elimina Progetto Una Tantum")
-
-            settore_attuale = settori_dict.get(progetto['settore_id'], "Sconosciuto")
-            pm_attuale = project_managers_dict.get(progetto['project_manager_id'], "Sconosciuto")
-            rec_attuale = recruiters_dict.get(progetto['sales_recruiter_id'], "Sconosciuto")
-
-            # Preleva data_inizio e data_fine esistenti
-            data_inizio_existing = progetto['data_inizio']
-            data_inizio_formatted = format_date_display(data_inizio_existing) if data_inizio_existing else ""
-
-            data_fine_existing = progetto['data_fine']
-            data_fine_formatted = format_date_display(data_fine_existing) if data_fine_existing else ""
-
-            # Create two separate forms: one for updating and one for deleting
-
-            col_upd, col_del = st.columns([3,1])
-            with col_upd:
-                with st.form("form_aggiorna_progetto"):
-                    # Nome Cliente: selezionato dalla lista esistente
-                    clienti = carica_clienti_db()
-                    client_names = [c['cliente'] for c in clienti]
-                    cliente_sel = st.selectbox("Nome Cliente", options=client_names, index=client_names.index(progetto['cliente']) if progetto['cliente'] in client_names else 0)
-
-                    # Ottieni settore_id basato sul cliente selezionato
-                    settore_id_agg = None
-                    for c in clienti:
-                        if c['cliente'] == cliente_sel:
-                            settore_id_agg = settori_dict_reverse.get(c['settore_id'], None)
-                            break
-
-                    # Project Manager
-                    pm_nomi = [p['nome'] for p in project_managers_db]
-                    pm_sel = st.selectbox(
-                        "Project Manager",
-                        options=pm_nomi,
-                        index=pm_nomi.index(pm_attuale) if pm_attuale in pm_nomi else 0
-                    )
-                    pm_id_agg = project_managers_dict_reverse.get(pm_sel, None)
-
-                    # Recruiter
-                    rec_nomi = [r['nome'] for r in recruiters_db]
-                    rec_sel = st.selectbox(
-                        "Sales Recruiter",
-                        options=rec_nomi,
-                        index=rec_nomi.index(rec_attuale) if rec_attuale in rec_nomi else 0
-                    )
-                    rec_id_agg = recruiters_dict_reverse.get(rec_sel, None)
-
-                    # Stato Progetto
-                    stato_attuale = progetto['stato_progetto'] if progetto['stato_progetto'] else ""
-                    stato_agg = st.selectbox(
-                        "Stato Progetto",
-                        [""] + STATI_PROGETTO,
-                        index=STATI_PROGETTO.index(stato_attuale) if stato_attuale in STATI_PROGETTO else 0
-                    )
-                    if stato_agg == "":
-                        stato_agg = None
-
-                    # Data Inizio e Data Fine
-                    data_inizio_agg = st.text_input("Data Inizio (GG/MM/AAAA)", value=data_inizio_formatted)
-                    data_fine_agg   = st.text_input("Data Fine (GG/MM/AAAA)",  value=data_fine_formatted)
-
-                    # Recensione
-                    rec_stelle_attuale = progetto['recensione_stelle'] or 0
-                    rec_stelle_agg = st.selectbox("Recensione (Stelle)", [0,1,2,3,4,5], index=rec_stelle_attuale)
-
-                    if rec_stelle_agg > 0:
-                        rec_data_existing = progetto['recensione_data']
-                        rec_data_formatted = format_date_display(rec_data_existing) if rec_data_existing else ""
-                        rec_data_input = st.date_input("Data Recensione", value=parse_date(rec_data_existing) if rec_data_existing else datetime.today().date())
-                    else:
-                        rec_data_input = None
-
-                    # Tempo Previsto (Mantenerlo)
-                    tempo_previsto_existing = progetto['tempo_previsto'] if progetto['tempo_previsto'] else 0
-                    tempo_previsto_agg = st.number_input("Tempo Previsto (giorni)", value=int(tempo_previsto_existing), min_value=0)
-
-                    sub_update = st.form_submit_button("Aggiorna Progetto")
-
-                    if sub_update:
-                        # Validazione dei campi
-                        if data_inizio_agg.strip():
-                            try:
-                                data_inizio_parsed = datetime.strptime(data_inizio_agg.strip(), '%d/%m/%Y').date()
-                            except ValueError:
-                                st.error("Data Inizio non valida (GG/MM/AAAA).")
-                                st.stop()
-                        else:
-                            data_inizio_parsed = None
-
-                        if data_fine_agg.strip():
-                            try:
-                                data_fine_parsed = datetime.strptime(data_fine_agg.strip(), '%d/%m/%Y').date()
-                            except ValueError:
-                                st.error("Data Fine non valida (GG/MM/AAAA).")
-                                st.stop()
-                        else:
-                            data_fine_parsed = None
-
-                        if data_inizio_parsed and data_fine_parsed:
-                            if data_fine_parsed < data_inizio_parsed:
-                                st.error("Data Fine non può essere precedente a Data Inizio.")
-                                st.stop()
-
-                        if rec_stelle_agg > 0 and not rec_data_input:
-                            st.error("Se hai inserito stelle > 0, devi specificare la data recensione.")
-                            st.stop()
-
-                        if settore_id_agg is None:
-                            st.error(f"Settore associato al cliente '{cliente_sel}' non trovato.")
-                            st.stop()
-                        if pm_id_agg is None:
-                            st.error(f"Project Manager '{pm_sel}' non esiste nei dizionari.")
-                            st.stop()
-                        if rec_id_agg is None:
-                            st.error(f"Recruiter '{rec_sel}' non esiste nei dizionari.")
-                            st.stop()
-
-                        # Assicurati che 'stato_progetto' sia formattato correttamente
-                        if stato_agg:
-                            stato_agg = stato_agg.strip().title()
-
-                        aggiorna_progetto(
-                            id_progetto=st.session_state.progetto_selezionato,
-                            cliente=cliente_sel.strip(),
-                            settore_id=settore_id_agg,
-                            project_manager_id=pm_id_agg,
-                            sales_recruiter_id=rec_id_agg,
-                            stato_progetto=stato_agg,
-                            data_inizio=data_inizio_parsed,
-                            data_fine=data_fine_parsed,
-                            recensione_stelle=rec_stelle_agg,
-                            recensione_data=rec_data_input,
-                            tempo_previsto=tempo_previsto_agg
-                        )
-                        st.success(f"Progetto {st.session_state.progetto_selezionato} aggiornato con successo!")
-                        st.session_state.progetto_selezionato = None  # Reset dello stato di selezione
-
-            with col_del:
-                with st.form("form_elimina_progetto"):
-                    elimina_button = st.form_submit_button("Elimina Progetto")
-                    if elimina_button:
-                        cancella_progetto(st.session_state.progetto_selezionato)
-                        st.success(f"Progetto ID {st.session_state.progetto_selezionato} eliminato con successo!")
-                        st.session_state.progetto_selezionato = None  # Reset dello stato di selezione
-
-    st.header("Tutti i Clienti Gestiti (Una Tantum)")
-
-    if st.button("Mostra Tutti i Clienti Una Tantum"):
-        df_tutti_clienti = carica_dati_completo(is_continuative=0)
-        if df_tutti_clienti.empty:
-            st.info("Nessun progetto presente nel DB.")
-        else:
-            df_tutti_clienti['settore'] = df_tutti_clienti['settore_id'].map(settori_dict).fillna("Sconosciuto")
-            df_tutti_clienti['project_manager'] = df_tutti_clienti['project_manager_id'].map(project_managers_dict).fillna("Sconosciuto")
-            df_tutti_clienti['sales_recruiter'] = df_tutti_clienti['sales_recruiter_id'].map(recruiters_dict).fillna("Sconosciuto")
-
-            df_tutti_clienti['data_inizio'] = df_tutti_clienti['data_inizio'].apply(format_date_display)
-            df_tutti_clienti['data_fine'] = df_tutti_clienti['data_fine'].apply(format_date_display)
-            df_tutti_clienti['recensione_data'] = df_tutti_clienti['recensione_data'].apply(format_date_display)
-
-            df_tutti_clienti['stato_progetto'] = df_tutti_clienti['stato_progetto'].fillna("")
-            df_tutti_clienti['recensione_stelle'] = df_tutti_clienti['recensione_stelle'].fillna(0).astype(int)
-
-            st.dataframe(df_tutti_clienti[['id', 'cliente', 'settore', 'project_manager', 'sales_recruiter', 'stato_progetto', 'data_inizio', 'data_fine', 'tempo_previsto']])
-
-            st.download_button(
-                label="Scarica Tutti i Clienti Una Tantum in CSV",
-                data=df_tutti_clienti.to_csv(index=False).encode('utf-8'),
-                file_name="tutti_clienti_una_tantum.csv",
-                mime="text/csv"
-            )
-
-####################################
-# TAB 2: Gestione Progetti Continuativi
-####################################
-with tab2:
-    st.header("Gestione Progetti Continuativi")
-
-    # Form per inserire un nuovo progetto continuativo
-    with st.form("form_inserisci_progetto_continuativo"):
-        st.subheader("Inserisci Nuovo Progetto Continuativo")
-
-        # Nome Cliente: selezionato dalla lista esistente
-        clienti = carica_clienti_db()
-        client_names = [c['cliente'] for c in clienti]
-        cliente_sel = st.selectbox("Nome Cliente", options=client_names)
-
-        # Ottieni settore_id basato sul cliente selezionato
-        settore_id = None
-        for c in clienti:
-            if c['cliente'] == cliente_sel:
-                settore_id = settori_dict_reverse.get(c['settore_id'], None)
-                break
-
-        # Project Manager
-        pm_nomi = [p['nome'] for p in project_managers_db]
-        pm_sel = st.selectbox("Project Manager", pm_nomi)
-        pm_id = project_managers_dict_reverse.get(pm_sel, None)
-
-        # Recruiter
-        rec_nomi = [r['nome'] for r in recruiters_db]
-        rec_sel = st.selectbox("Sales Recruiter", rec_nomi)
-        rec_id = recruiters_dict_reverse.get(rec_sel, None)
-
-        # Stato Progetto
-        stato_progetto = st.selectbox("Stato Progetto", [""] + STATI_PROGETTO, index=0)
-        if stato_progetto == "":
-            stato_progetto = None
-
-        # Numero di venditori da inserire
-        numero_venditori = st.number_input("Numero di Venditori da Inserire", min_value=1, value=1)
-
-        # Data Inizio Continuativo (start_date)
-        start_date_continuativo = st.date_input("Data Inizio Continuativo", value=datetime.today().date())
-
-        # Data Fine Continuativo opzionale
-        data_fine_continuativo = st.text_input("Data Fine Continuativo (GG/MM/AAAA, opzionale)", value="")
-        if data_fine_continuativo.strip():
-            try:
-                data_fine_parsed = datetime.strptime(data_fine_continuativo.strip(), '%d/%m/%Y').date()
-            except ValueError:
-                st.error("Data Fine Continuativo non valida (GG/MM/AAAA).")
-                st.stop()
-        else:
-            data_fine_parsed = None
-
-        # Rimuovere 'tempo_previsto' come richiesto
-        # tempo_previsto = st.number_input("Tempo Previsto (giorni)", value=0, min_value=0)
-
-        submit_continuative = st.form_submit_button("Inserisci Progetto Continuativo")
-
-        if submit_continuative:
-            if not cliente_sel.strip():
-                st.error("Il campo 'Nome Cliente' è obbligatorio!")
-                st.stop()
-            if not pm_id:
-                st.error("Project Manager selezionato non valido.")
-                st.stop()
-            if not rec_id:
-                st.error("Sales Recruiter selezionato non valido.")
-                st.stop()
-
-            # Formatta 'stato_progetto' correttamente
-            if stato_progetto:
-                stato_progetto = stato_progetto.strip().title()
-
-            inserisci_progetto_continuativo(
-                cliente=cliente_sel.strip(),
-                settore_id=settore_id,
-                project_manager_id=pm_id,
-                sales_recruiter_id=rec_id,
-                stato_progetto=stato_progetto,
-                data_inizio=start_date_continuativo.strftime('%Y-%m-%d') if start_date_continuativo else None,
-                tempo_previsto=0,  # Campo rimosso, impostato a 0 o un valore di default
-                is_continuative=True,
-                number_recruiters=numero_venditori,
-                frequency=None,
-                start_date=start_date_continuativo.strftime('%Y-%m-%d') if start_date_continuativo else None,
-                end_date=data_fine_parsed.strftime('%Y-%m-%d') if data_fine_parsed else None
-            )
-            st.success("Progetto continuativo inserito con successo!")
-            st.session_state.progetto_selezionato = None  # Reset dello stato di selezione
-            st.session_state.update_continuativo = None  # Reset dello stato di aggiornamento
-
-    st.write("---")
-    st.subheader("Visualizza Progetti Continuativi Esistenti")
-    progetti_continuativi = carica_progetti_continuativi_db()
-    if progetti_continuativi.empty:
-        st.info("Nessun progetto continuativo presente nel DB.")
+if submit_cerca:
+    if not id_progetto_str and not nome_cliente:
+        st.error("Inserisci almeno l'ID o il nome del cliente per la ricerca.")
     else:
-        df_continuativi = pd.DataFrame(progetti_continuativi)
-        df_continuativi['settore'] = df_continuativi['settore_id'].map(settori_dict).fillna("Sconosciuto")
-        df_continuativi['project_manager'] = df_continuativi['project_manager_id'].map(project_managers_dict).fillna("Sconosciuto")
-        df_continuativi['sales_recruiter'] = df_continuativi['sales_recruiter_id'].map(recruiters_dict).fillna("Sconosciuto")
+        id_progetto = int(id_progetto_str) if id_progetto_str.isdigit() else None
+        risultati = cerca_progetti(id_progetto=id_progetto, nome_cliente=nome_cliente.strip() or None)
+        if risultati:
+            columns = [
+                'id','cliente','settore_id','project_manager_id','sales_recruiter_id',
+                'stato_progetto','data_inizio','data_fine','tempo_totale',
+                'recensione_stelle','recensione_data','tempo_previsto'
+            ]
+            df_risultati = pd.DataFrame(risultati, columns=columns)
 
-        # Format date
-        df_continuativi['data_inizio'] = df_continuativi['data_inizio'].apply(format_date_display)
-        df_continuativi['data_fine']   = df_continuativi['data_fine'].apply(format_date_display)
-        df_continuativi['recensione_data'] = df_continuativi['recensione_data'].apply(format_date_display)
-        df_continuativi['start_date'] = df_continuativi['start_date'].apply(format_date_display)
-        df_continuativi['end_date'] = df_continuativi['end_date'].apply(format_date_display)
+            # Mappa ID -> nomi
+            df_risultati['settore'] = df_risultati['settore_id'].map(settori_dict)
+            df_risultati['project_manager'] = df_risultati['project_manager_id'].map(project_managers_dict)
+            df_risultati['sales_recruiter'] = df_risultati['sales_recruiter_id'].map(recruiters_dict)
 
-        df_continuativi['stato_progetto'] = df_continuativi['stato_progetto'].fillna("")
-        df_continuativi['recensione_stelle'] = df_continuativi['recensione_stelle'].fillna(0).astype(int)
-        df_continuativi['tempo_previsto'] = df_continuativi['tempo_previsto'].fillna(0).astype(int)
-        df_continuativi['number_recruiters'] = df_continuativi['number_recruiters'].fillna(0).astype(int)
+            # Format date
+            df_risultati['data_inizio'] = df_risultati['data_inizio'].apply(format_date_display)
+            df_risultati['data_fine']   = df_risultati['data_fine'].apply(format_date_display)
+            df_risultati['recensione_data'] = df_risultati['recensione_data'].apply(format_date_display)
 
-        st.dataframe(df_continuativi[['id', 'cliente', 'settore', 'project_manager', 'sales_recruiter', 'stato_progetto', 'start_date', 'end_date', 'number_recruiters']])
+            df_risultati['stato_progetto'] = df_risultati['stato_progetto'].fillna("")
+            df_risultati['recensione_stelle'] = df_risultati['recensione_stelle'].fillna(0).astype(int)
+            df_risultati['tempo_previsto'] = df_risultati['tempo_previsto'].fillna(0).astype(int)
 
-        # Aggiungi un form per Aggiornare / Eliminare Progetto Continuativo
-        st.header("Aggiorna / Elimina Progetto Continuativo Selezionato")
-        with st.form("form_aggiorna_elimina_continuativo"):
-            progetto_continuativo_scelto = st.selectbox(
-                "Seleziona ID Progetto Continuativo da Aggiornare o Eliminare",
-                options=df_continuativi['id'].tolist()
+            st.write("**Dati recuperati:**")
+            st.dataframe(df_risultati)
+
+            st.header("Aggiorna Progetto Selezionato")
+            progetto_scelto = st.selectbox(
+                "Seleziona ID Progetto da Aggiornare",
+                options=df_risultati['id'].tolist()
             )
-            azione = st.selectbox("Azione", ["Aggiorna", "Elimina"])
-            submit_azione = st.form_submit_button("Esegui Azione")
+            st.session_state.progetto_selezionato = progetto_scelto
+        else:
+            st.info("Nessun progetto trovato con i criteri inseriti.")
 
-            if submit_azione:
-                progetto = cerca_progetti(id_progetto=progetto_continuativo_scelto, is_continuative=1)
-                if not progetto:
-                    st.error("Progetto continuativo non trovato.")
-                else:
-                    progetto = progetto[0]
-                    if azione == "Elimina":
-                        cancella_progetto(progetto_continuativo_scelto)
-                        st.success(f"Progetto Continuativo ID {progetto_continuativo_scelto} eliminato con successo!")
-                    elif azione == "Aggiorna":
-                        # Imposta lo stato di aggiornamento per mostrare il form di aggiornamento
-                        st.session_state.update_continuativo = progetto_continuativo_scelto
+if st.session_state.progetto_selezionato:
+    row_list = cerca_progetti(id_progetto=st.session_state.progetto_selezionato)
+    if not row_list:
+        st.error("Progetto non trovato. Forse è stato eliminato?")
+        st.stop()
 
-        # Ora, fuori dal form precedente, verifica se dobbiamo mostrare il form di aggiornamento
-        if st.session_state.update_continuativo:
-            progetto_continuativo_scelto = st.session_state.update_continuativo
-            progetto = cerca_progetti(id_progetto=progetto_continuativo_scelto, is_continuative=1)[0]
+    progetto = row_list[0]
 
-            st.write("### Aggiornamento Progetto Continuativo")
+    st.header("Aggiorna / Elimina Progetto")
 
-            with st.form("form_aggiorna_continuativo"):
-                # Nome Cliente: selezionato dalla lista esistente
-                clienti = carica_clienti_db()
-                client_names = [c['cliente'] for c in clienti]
-                cliente_sel = st.selectbox("Nome Cliente", options=client_names, index=client_names.index(progetto['cliente']) if progetto['cliente'] in client_names else 0)
+    settore_attuale = settori_dict.get(progetto[2], None)
+    pm_attuale = project_managers_dict.get(progetto[3], None)
+    rec_attuale = recruiters_dict.get(progetto[4], None)
 
-                # Ottieni settore_id basato sul cliente selezionato
-                settore_id_agg = None
-                for c in clienti:
-                    if c['cliente'] == cliente_sel:
-                        settore_id_agg = settori_dict_reverse.get(c['settore_id'], None)
-                        break
+    col_upd, col_del = st.columns([3,1])
+    with col_upd:
+        with st.form("form_aggiorna_progetto"):
+            cliente_agg = st.text_input("Nome Cliente", value=progetto[1])
 
-                # Project Manager
-                pm_nomi = [p['nome'] for p in project_managers_db]
-                pm_sel = st.selectbox(
-                    "Project Manager",
-                    options=pm_nomi,
-                    index=pm_nomi.index(progetto['project_manager']) if progetto['project_manager'] in pm_nomi else 0
-                )
-                pm_id_agg = project_managers_dict_reverse.get(pm_sel, None)
+            settori_nomi = [s[1] for s in settori_db]
+            if settore_attuale and settore_attuale not in settori_nomi:
+                settori_nomi.append(settore_attuale)
+            if not settore_attuale:
+                settore_attuale = settori_nomi[0]
 
-                # Recruiter
-                rec_nomi = [r['nome'] for r in recruiters_db]
-                rec_sel = st.selectbox(
-                    "Sales Recruiter",
-                    options=rec_nomi,
-                    index=rec_nomi.index(progetto['sales_recruiter']) if progetto['sales_recruiter'] in rec_nomi else 0
-                )
-                rec_id_agg = recruiters_dict_reverse.get(rec_sel, None)
+            settore_scelto = st.selectbox(
+                "Settore Cliente",
+                options=settori_nomi,
+                index=settori_nomi.index(settore_attuale) if settore_attuale in settori_nomi else 0
+            )
+            settore_id_agg = settori_dict_reverse.get(settore_scelto, None)
 
-                # Stato Progetto
-                stato_attuale = progetto['stato_progetto'] if progetto['stato_progetto'] else ""
-                stato_agg = st.selectbox(
-                    "Stato Progetto",
-                    [""] + STATI_PROGETTO,
-                    index=STATI_PROGETTO.index(stato_attuale) if stato_attuale in STATI_PROGETTO else 0
-                )
-                if stato_agg == "":
-                    stato_agg = None
+            # PM
+            pm_nomi = [p[1] for p in project_managers_db]
+            if pm_attuale and pm_attuale not in pm_nomi:
+                pm_nomi.append(pm_attuale)
+            if not pm_attuale:
+                pm_attuale = pm_nomi[0]
 
-                # Numero di venditori da inserire
-                numero_venditori = st.number_input("Numero di Venditori da Inserire", min_value=1, value=int(progetto['number_recruiters']) if progetto['number_recruiters'] else 1)
+            pm_scelto = st.selectbox(
+                "Project Manager",
+                options=pm_nomi,
+                index=pm_nomi.index(pm_attuale) if pm_attuale in pm_nomi else 0
+            )
+            pm_id_agg = project_managers_dict_reverse.get(pm_scelto, None)
 
-                # Data Inizio Continuativo (start_date)
-                start_date_continuativo = st.date_input("Data Inizio Continuativo", value=parse_date(progetto['start_date']) if progetto['start_date'] else datetime.today().date())
+            # Recruiter
+            rec_nomi = [r[1] for r in recruiters_db]
+            if rec_attuale and rec_attuale not in rec_nomi:
+                rec_nomi.append(rec_attuale)
+            if not rec_attuale:
+                rec_attuale = rec_nomi[0]
 
-                # Data Fine Continuativo opzionale
-                data_fine_continuativo = st.text_input("Data Fine Continuativo (GG/MM/AAAA, opzionale)", value=format_date_display(progetto['end_date']) if progetto['end_date'] else "")
-                if data_fine_continuativo.strip():
+            rec_scelto = st.selectbox(
+                "Sales Recruiter",
+                options=rec_nomi,
+                index=rec_nomi.index(rec_attuale) if rec_attuale in rec_nomi else 0
+            )
+            rec_id_agg = recruiters_dict_reverse.get(rec_scelto, None)
+
+            stato_attuale = progetto[5] if progetto[5] else STATI_PROGETTO[0]
+            if stato_attuale not in STATI_PROGETTO:
+                stato_attuale = STATI_PROGETTO[0]
+            stato_agg = st.selectbox(
+                "Stato Progetto",
+                STATI_PROGETTO,
+                index=STATI_PROGETTO.index(stato_attuale) if stato_attuale in STATI_PROGETTO else 0
+            )
+
+            st.write("**Lascia vuoto per cancellare la data.**")
+
+            data_inizio_existing = parse_date(progetto[6])
+            data_fine_existing   = parse_date(progetto[7])
+
+            data_inizio_str = data_inizio_existing.strftime('%d/%m/%Y') if data_inizio_existing else ""
+            data_fine_str   = data_fine_existing.strftime('%d/%m/%Y') if data_fine_existing else ""
+
+            data_inizio_agg = st.text_input("Data Inizio (GG/MM/AAAA)", value=data_inizio_str)
+            data_fine_agg   = st.text_input("Data Fine (GG/MM/AAAA)",  value=data_fine_str)
+
+            rec_stelle_attuale = progetto[9] or 0
+            rec_stelle_agg = st.selectbox("Recensione (Stelle)", [0,1,2,3,4,5], index=rec_stelle_attuale)
+
+            rec_data_existing = parse_date(progetto[10])
+            if rec_stelle_agg > 0:
+                rec_data_val = rec_data_existing if rec_data_existing else datetime.today().date()
+                rec_data_input = st.date_input("Data Recensione", value=rec_data_val)
+            else:
+                rec_data_input = None
+
+            tempo_previsto_existing = progetto[11] if progetto[11] else 0
+            tempo_previsto_agg = st.number_input("Tempo Previsto (giorni)",
+                                                value=int(tempo_previsto_existing),
+                                                min_value=0)
+
+            sub_update = st.form_submit_button("Aggiorna Progetto")
+
+            if sub_update:
+                if data_inizio_agg.strip():
                     try:
-                        data_fine_parsed = datetime.strptime(data_fine_continuativo.strip(), '%d/%m/%Y').date()
+                        data_inizio_parsed = datetime.strptime(data_inizio_agg.strip(), '%d/%m/%Y').date()
                     except ValueError:
-                        st.error("Data Fine Continuativo non valida (GG/MM/AAAA).")
+                        st.error("Data inizio non valida (GG/MM/AAAA).")
+                        st.stop()
+                else:
+                    data_inizio_parsed = None
+
+                if data_fine_agg.strip():
+                    try:
+                        data_fine_parsed = datetime.strptime(data_fine_agg.strip(), '%d/%m/%Y').date()
+                    except ValueError:
+                        st.error("Data fine non valida (GG/MM/AAAA).")
                         st.stop()
                 else:
                     data_fine_parsed = None
 
-                # Rimuovere 'tempo_previsto' come richiesto
-                # tempo_previsto = st.number_input("Tempo Previsto (giorni)", value=0, min_value=0)
-
-                sub_update_continuativo = st.form_submit_button("Aggiorna Progetto Continuativo")
-
-                if sub_update_continuativo:
-                    # Validazione dei campi
-                    if start_date_continuativo:
-                        start_date_parsed = start_date_continuativo.strftime('%Y-%m-%d')
-                    else:
-                        start_date_parsed = None
-
-                    if data_fine_parsed:
-                        end_date_parsed = data_fine_parsed.strftime('%Y-%m-%d')
-                    else:
-                        end_date_parsed = None
-
-                    if start_date_parsed and end_date_parsed:
-                        if datetime.strptime(end_date_parsed, '%Y-%m-%d').date() < datetime.strptime(start_date_parsed, '%Y-%m-%d').date():
-                            st.error("Data Fine Continuativo non può essere precedente a Data Inizio Continuativo.")
-                            st.stop()
-
-                    if rec_id_agg is None:
-                        st.error(f"Recruiter '{rec_sel}' non esiste nei dizionari.")
+                if data_inizio_parsed and data_fine_parsed:
+                    if data_fine_parsed < data_inizio_parsed:
+                        st.error("Data fine non può essere precedente a data inizio.")
                         st.stop()
 
-                    # Assicurati che 'stato_progetto' sia formattato correttamente
-                    if stato_agg:
-                        stato_agg = stato_agg.strip().title()
+                if rec_stelle_agg > 0 and not rec_data_input:
+                    st.error("Se hai messo stelle>0, devi specificare la data recensione.")
+                    st.stop()
 
-                    aggiorna_progetto(
-                        id_progetto=progetto_continuativo_scelto,
-                        cliente=cliente_sel.strip(),
-                        settore_id=settore_id_agg,
-                        project_manager_id=pm_id_agg,
-                        sales_recruiter_id=rec_id_agg,
-                        stato_progetto=stato_agg,
-                        data_inizio=None,  # Non modificare data_inizio per progetti continuativi
-                        data_fine=None,    # Non modificare data_fine per progetti continuativi
-                        recensione_stelle=progetto['recensione_stelle'],
-                        recensione_data=progetto['recensione_data'],
-                        tempo_previsto=progetto['tempo_previsto'],  # Mantiene il valore esistente
-                        is_continuative=1,
-                        number_recruiters=numero_venditori,
-                        frequency=None,
-                        start_date=start_date_parsed,
-                        end_date=end_date_parsed
-                    )
-                    st.success(f"Progetto Continuativo {progetto_continuativo_scelto} aggiornato con successo!")
-                    st.session_state.update_continuativo = None  # Reset dello stato di aggiornamento
+                if settore_id_agg is None:
+                    st.error(f"Settore '{settore_scelto}' non esiste nei dizionari.")
+                    st.stop()
+                if pm_id_agg is None:
+                    st.error(f"PM '{pm_scelto}' non esiste nei dizionari.")
+                    st.stop()
+                if rec_id_agg is None:
+                    st.error(f"Recruiter '{rec_scelto}' non esiste nei dizionari.")
+                    st.stop()
 
-    # Download dei progetti continuativi
-    st.download_button(
-        label="Scarica Progetti Continuativi in CSV",
-        data=df_continuativi.to_csv(index=False).encode('utf-8'),
-        file_name="progetti_continuativi.csv",
-        mime="text/csv"
-    )
+                aggiorna_progetto(
+                    id_progetto=st.session_state.progetto_selezionato,
+                    cliente=cliente_agg.strip(),
+                    settore_id=settore_id_agg,
+                    project_manager_id=pm_id_agg,
+                    sales_recruiter_id=rec_id_agg,
+                    stato_progetto=stato_agg,
+                    data_inizio=data_inizio_parsed,
+                    data_fine=data_fine_parsed,
+                    recensione_stelle=rec_stelle_agg,
+                    recensione_data=rec_data_input,
+                    tempo_previsto=tempo_previsto_agg
+                )
+                st.success(f"Progetto {st.session_state.progetto_selezionato} aggiornato con successo!")
+                st.session_state.progetto_selezionato = None
+
+    with col_del:
+        st.write("**Attenzione:**")
+        st.write("Eliminando il progetto, i dati spariranno definitivamente.")
+        elimina_button = st.button("Elimina Progetto")
+        if elimina_button:
+            cancella_progetto(st.session_state.progetto_selezionato)
+            st.success(f"Progetto ID {st.session_state.progetto_selezionato} eliminato con successo!")
+            st.session_state.progetto_selezionato = None
+
+st.header("Tutti i Clienti Gestiti")
+
+if st.button("Mostra Tutti i Clienti"):
+    df_tutti_clienti = carica_dati_completo()
+    if df_tutti_clienti.empty:
+        st.info("Nessun progetto presente nel DB.")
+    else:
+        df_tutti_clienti['settore'] = df_tutti_clienti['settore_id'].map(settori_dict).fillna("Sconosciuto")
+        df_tutti_clienti['project_manager'] = df_tutti_clienti['project_manager_id'].map(project_managers_dict).fillna("Sconosciuto")
+        df_tutti_clienti['sales_recruiter'] = df_tutti_clienti['sales_recruiter_id'].map(recruiters_dict).fillna("Sconosciuto")
+
+        df_tutti_clienti['data_inizio'] = df_tutti_clienti['data_inizio'].apply(format_date_display)
+        df_tutti_clienti['data_fine'] = df_tutti_clienti['data_fine'].apply(format_date_display)
+        df_tutti_clienti['recensione_data'] = df_tutti_clienti['recensione_data'].apply(format_date_display)
+
+        df_tutti_clienti['stato_progetto'] = df_tutti_clienti['stato_progetto'].fillna("")
+        df_tutti_clienti['recensione_stelle'] = df_tutti_clienti['recensione_stelle'].fillna(0).astype(int)
+
+        # Se la colonna tempo_previsto esiste, la convertiamo in int con fillna(0).
+        if 'tempo_previsto' in df_tutti_clienti.columns:
+            df_tutti_clienti['tempo_previsto'] = pd.to_numeric(df_tutti_clienti['tempo_previsto'], errors="coerce")
+            df_tutti_clienti['tempo_previsto'] = df_tutti_clienti['tempo_previsto'].fillna(0).astype(int)
+
+        st.dataframe(df_tutti_clienti)
+
+        st.download_button(
+            label="Scarica Tutti i Clienti in CSV",
+            data=df_tutti_clienti.to_csv(index=False).encode('utf-8'),
+            file_name="tutti_clienti.csv",
+            mime="text/csv"
+        )
