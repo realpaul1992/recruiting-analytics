@@ -3,6 +3,7 @@
 import streamlit as st
 import pymysql
 import pandas as pd
+from datetime import datetime
 
 ####################################
 # Funzione di Connessione
@@ -207,7 +208,7 @@ def elimina_recruiter(rec_id):
 ####################################
 def carica_capacity_recruiter():
     """
-    Restituisce [(recruiter_id, recruiter_nome, capacity_max), ...]
+    Restituisce una lista di dizionari con recruiter_id, recruiter_nome, capacity_max
     """
     conn = get_connection()
     try:
@@ -745,8 +746,8 @@ with tab5:
         recruiter_id = int(recruiter_sel.split("ID: ")[1].strip(")")) if recruiter_sel else None
 
         candidato_nome = st.text_input("Nome Candidato", key="candidato_nome")
-        data_inserimento = st.date_input("Data di Inserimento", value=pd.to_datetime("today"), key="candidato_data_inserimento")
-        data_placement = st.date_input("Data di Placement", value=pd.to_datetime("today"), key="candidato_data_placement")
+        data_inserimento = st.date_input("Data di Inserimento", value=datetime.today(), key="candidato_data_inserimento")
+        data_placement = st.date_input("Data di Placement", value=datetime.today(), key="candidato_data_placement")
         data_dimissioni = st.date_input("Data di Dimissioni (Lascia vuoto se ancora in posizione)", value=None, key="candidato_data_dimissioni")
 
         submitted = st.form_submit_button("Inserisci Candidato")
@@ -795,9 +796,9 @@ with tab5:
                     recruiter_sel_mod = st.selectbox("Seleziona Recruiter", recruiter_nomi, index=[r['id'] for r in recruiters].index(candidato['recruiter_id']), key="mod_candidato_recruiter")
                     recruiter_id_mod = int(recruiter_sel_mod.split("ID: ")[1].strip(")")) if recruiter_sel_mod else None
 
-                    data_inserimento_mod = st.date_input("Data di Inserimento", value=pd.to_datetime(candidato['data_inserimento']), key="mod_candidato_data_inserimento")
-                    data_placement_mod = st.date_input("Data di Placement", value=pd.to_datetime(candidato['data_placement']), key="mod_candidato_data_placement")
-                    data_dimissioni_mod = st.date_input("Data di Dimissioni (Lascia vuoto se ancora in posizione)", value=pd.to_datetime(candidato['data_dimissioni']) if pd.notnull(candidato['data_dimissioni']) else None, key="mod_candidato_data_dimissioni")
+                    data_inserimento_mod = st.date_input("Data di Inserimento", value=datetime.strptime(candidato['data_inserimento'], '%Y-%m-%d'), key="mod_candidato_data_inserimento")
+                    data_placement_mod = st.date_input("Data di Placement", value=datetime.strptime(candidato['data_placement'], '%Y-%m-%d'), key="mod_candidato_data_placement")
+                    data_dimissioni_mod = st.date_input("Data di Dimissioni (Lascia vuoto se ancora in posizione)", value=datetime.strptime(candidato['data_dimissioni'], '%Y-%m-%d') if pd.notnull(candidato['data_dimissioni']) else None, key="mod_candidato_data_dimissioni")
 
                     submitted_mod = st.form_submit_button("Aggiorna Candidato")
                     if submitted_mod:
@@ -847,7 +848,7 @@ with tab6:
         recruiter_sel = st.selectbox("Seleziona Recruiter", recruiter_nomi, key="riunione_recruiter")
         recruiter_id = int(recruiter_sel.split("ID: ")[1].strip(")")) if recruiter_sel else None
 
-        data_riunione = st.date_input("Data della Riunione", value=pd.to_datetime("today"), key="riunione_data")
+        data_riunione = st.date_input("Data della Riunione", value=datetime.today(), key="riunione_data")
         partecipato = st.checkbox("Ha partecipato", key="riunione_partecipato")
 
         submitted = st.form_submit_button("Inserisci Riunione")
@@ -880,7 +881,7 @@ with tab6:
                     recruiter_sel_mod = st.selectbox("Seleziona Recruiter", recruiter_nomi, index=[r['id'] for r in recruiters].index(riunione['recruiter_id']), key="mod_riunione_recruiter")
                     recruiter_id_mod = int(recruiter_sel_mod.split("ID: ")[1].strip(")")) if recruiter_sel_mod else None
 
-                    data_riunione_mod = st.date_input("Data della Riunione", value=pd.to_datetime(riunione['data_riunione']), key="mod_riunione_data")
+                    data_riunione_mod = st.date_input("Data della Riunione", value=datetime.strptime(riunione['data_riunione'], '%Y-%m-%d'), key="mod_riunione_data")
                     partecipato_mod = st.checkbox("Ha partecipato", value=riunione['partecipato'], key="mod_riunione_partecipato")
 
                     submitted_mod = st.form_submit_button("Aggiorna Riunione")
@@ -920,7 +921,7 @@ with tab7:
         recruiter_id = int(recruiter_sel.split("ID: ")[1].strip(")")) if recruiter_sel else None
 
         cliente_nome = st.text_input("Nome del Nuovo Cliente", key="referral_cliente")
-        data_referral = st.date_input("Data del Referral", value=pd.to_datetime("today"), key="referral_data")
+        data_referral = st.date_input("Data del Referral", value=datetime.today(), key="referral_data")
         stato = st.selectbox("Stato del Referral", ["In corso", "Chiuso"], key="referral_stato")
 
         submitted = st.form_submit_button("Inserisci Referral")
@@ -958,7 +959,7 @@ with tab7:
                     recruiter_id_mod = int(recruiter_sel_mod.split("ID: ")[1].strip(")")) if recruiter_sel_mod else None
 
                     cliente_nome_mod = st.text_input("Nome del Nuovo Cliente", value=referral['cliente_nome'], key="mod_referral_cliente")
-                    data_referral_mod = st.date_input("Data del Referral", value=pd.to_datetime(referral['data_referral']), key="mod_referral_data")
+                    data_referral_mod = st.date_input("Data del Referral", value=datetime.strptime(referral['data_referral'], '%Y-%m-%d'), key="mod_referral_data")
                     stato_mod = st.selectbox("Stato del Referral", ["In corso", "Chiuso"], index=["In corso", "Chiuso"].index(referral['stato']), key="mod_referral_stato")
 
                     submitted_mod = st.form_submit_button("Aggiorna Referral")
@@ -1003,7 +1004,7 @@ with tab8:
         recruiter_id = int(recruiter_sel.split("ID: ")[1].strip(")")) if recruiter_sel else None
 
         corso_nome = st.text_input("Nome del Corso", key="formazione_corso")
-        data_completamento = st.date_input("Data di Completamento", value=pd.to_datetime("today"), key="formazione_data")
+        data_completamento = st.date_input("Data di Completamento", value=datetime.today(), key="formazione_data")
 
         submitted = st.form_submit_button("Inserisci Formazione")
         if submitted:
@@ -1038,7 +1039,7 @@ with tab8:
                     recruiter_id_mod = int(recruiter_sel_mod.split("ID: ")[1].strip(")")) if recruiter_sel_mod else None
 
                     corso_nome_mod = st.text_input("Nome del Corso", value=formazione['corso_nome'], key="mod_formazione_corso")
-                    data_completamento_mod = st.date_input("Data di Completamento", value=pd.to_datetime(formazione['data_completamento']), key="mod_formazione_data")
+                    data_completamento_mod = st.date_input("Data di Completamento", value=datetime.strptime(formazione['data_completamento'], '%Y-%m-%d'), key="mod_formazione_data")
 
                     submitted_mod = st.form_submit_button("Aggiorna Formazione")
                     if submitted_mod:
