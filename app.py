@@ -142,6 +142,9 @@ def carica_dati_completo():
     df['data_inizio_dt'] = pd.to_datetime(df['data_inizio'], errors='coerce')
     df['recensione_data_dt'] = pd.to_datetime(df['recensione_data'], errors='coerce')
     
+    # Assicurati che 'tempo_previsto' sia numeric
+    df['tempo_previsto'] = pd.to_numeric(df['tempo_previsto'], errors='coerce')
+    
     return df
 
 #######################################
@@ -523,7 +526,7 @@ def calcola_leaderboard(df, start_date, end_date):
     referrals_data = carica_referrals()
     referrals_df = pd.DataFrame(referrals_data)
     referrals_df = referrals_df.merge(recruiters_df, left_on='recruiter_id', right_on='id', how='left')
-    referrals_df['bonus_referral'] = referrals_df['stato'].apply(lambda x: 1000 if x.lower() == 'acquisito' else 0)
+    referrals_df['bonus_referral'] = referrals_df['stato'].apply(lambda x: 1000 if str(x).lower() == 'acquisito' else 0)
     bonus_referral = referrals_df.groupby('nome')['bonus_referral'].sum().reset_index()
     bonus_referral.rename(columns={'nome': 'sales_recruiter', 'bonus_referral': 'bonus_referral'}, inplace=True)
 
@@ -531,7 +534,7 @@ def calcola_leaderboard(df, start_date, end_date):
     formazione_data = carica_formazione()
     formazione_df = pd.DataFrame(formazione_data)
     formazione_df = formazione_df.merge(recruiters_df, left_on='recruiter_id', right_on='id', how='left')
-    formazione_df['bonus_formazione'] = formazione_df['corso_nome'].apply(lambda x: 300 if x else 0)
+    formazione_df['bonus_formazione'] = formazione_df['corso_nome'].apply(lambda x: 300 if str(x).strip() else 0)
     bonus_formazione = formazione_df.groupby('nome')['bonus_formazione'].sum().reset_index()
     bonus_formazione.rename(columns={'nome': 'sales_recruiter', 'bonus_formazione': 'bonus_formazione'}, inplace=True)
 
@@ -592,8 +595,8 @@ def format_date_display(x):
         return x  # Se il formato non è corretto o è vuoto, lascio inalterato
 
 def parse_date(date_obj):
-    """Converti un oggetto datetime.date in una stringa 'YYYY-MM-DD'."""
-    if isinstance(date_obj, datetime) or isinstance(date_obj, pd.Timestamp):
+    """Converti un oggetto datetime.date o datetime.datetime in una stringa 'YYYY-MM-DD'."""
+    if isinstance(date_obj, datetime):
         return date_obj.strftime('%Y-%m-%d')
     elif isinstance(date_obj, datetime.date):
         return date_obj.strftime('%Y-%m-%d')
@@ -657,9 +660,6 @@ if scelta == "Inserisci Dati":
                                         value="", 
                                         placeholder="Lascia vuoto se non disponibile")
 
-        # Tempo Previsto
-        tempo_previsto = st.number_input("Tempo Previsto (giorni)", min_value=0, step=1, value=0)
-
         submitted = st.form_submit_button("Inserisci Progetto")
         if submitted:
             if not cliente.strip():
@@ -676,7 +676,7 @@ if scelta == "Inserisci Dati":
             else:
                 data_inizio_sql = None
             
-            inserisci_dati(cliente.strip(), settore_id, pm_id, rec_id, data_inizio_sql, tempo_previsto)
+            inserisci_dati(cliente.strip(), settore_id, pm_id, rec_id, data_inizio_sql, tempo_previsto=0)  # tempo_previsto non è presente
             st.success("Progetto inserito con successo!")
 
 #######################################
@@ -1033,6 +1033,8 @@ elif scelta == "Dashboard":
                 - **Grey:** Altri punteggi  
                 """)
 
+                st.markdown("---")
+
                 ################################
                 # Grafici nella Classifica
                 ################################
@@ -1129,10 +1131,15 @@ elif scelta == "Gestione":
                 with st.expander(f"Riunione ID {ri_id} - {data_riunione}"):
                     recruiters = carica_recruiters()
                     recruiter_nomi = [r['nome'] for r in recruiters]
+                    try:
+                        recruiter_current_name = next(r['nome'] for r in recruiters if r['id'] == recruiter_id)
+                    except StopIteration:
+                        recruiter_current_name = "Recruiter Non Trovato"
+                    
                     recruiter_sel = st.selectbox(
                         "Recruiter", 
                         recruiter_nomi, 
-                        index=recruiter_nomi.index(next(r['nome'] for r in recruiters if r['id'] == recruiter_id)),
+                        index=recruiter_nomi.index(recruiter_current_name) if recruiter_current_name in recruiter_nomi else 0,
                         key=f"recruiter_{ri_id}"
                     )
                     recruiter_id_new = None
@@ -1141,14 +1148,15 @@ elif scelta == "Gestione":
                             recruiter_id_new = r['id']
                             break
                     
+                    # Converti 'data_riunione' in oggetto date
                     try:
-                        data_riunione_new = datetime.strptime(data_riunione, '%Y-%m-%d').date()
+                        data_riunione_date = datetime.strptime(data_riunione, '%Y-%m-%d').date()
                     except ValueError:
-                        data_riunione_new = datetime.today().date()
+                        data_riunione_date = datetime.today().date()
 
                     data_riunione_new = st.date_input(
                         "Data Riunione", 
-                        value=data_riunione_new, 
+                        value=data_riunione_date, 
                         key=f"data_riunione_{ri_id}"
                     )
                     partecipato_new = st.selectbox(
@@ -1214,10 +1222,15 @@ elif scelta == "Gestione":
                 with st.expander(f"Referral ID {ref_id} - {cliente_nome}"):
                     recruiters = carica_recruiters()
                     recruiter_nomi = [r['nome'] for r in recruiters]
+                    try:
+                        recruiter_current_name = next(r['nome'] for r in recruiters if r['id'] == recruiter_id)
+                    except StopIteration:
+                        recruiter_current_name = "Recruiter Non Trovato"
+
                     recruiter_sel = st.selectbox(
                         "Recruiter", 
                         recruiter_nomi, 
-                        index=recruiter_nomi.index(next(r['nome'] for r in recruiters if r['id'] == recruiter_id)),
+                        index=recruiter_nomi.index(recruiter_current_name) if recruiter_current_name in recruiter_nomi else 0,
                         key=f"recruiter_ref_{ref_id}"
                     )
                     recruiter_id_new = None
@@ -1227,9 +1240,14 @@ elif scelta == "Gestione":
                             break
                     
                     cliente_nome_new = st.text_input("Nome Cliente", value=cliente_nome, key=f"cliente_ref_{ref_id}")
+                    try:
+                        data_referral_date = datetime.strptime(data_referral, '%Y-%m-%d').date()
+                    except ValueError:
+                        data_referral_date = datetime.today().date()
+
                     data_referral_new = st.date_input(
                         "Data Referral", 
-                        value=datetime.strptime(data_referral, '%Y-%m-%d').date(), 
+                        value=data_referral_date, 
                         key=f"data_referral_{ref_id}"
                     )
                     stato_referral_new = st.selectbox(
@@ -1249,8 +1267,8 @@ elif scelta == "Gestione":
                         if not cliente_nome_new.strip():
                             st.error("Il campo 'Nome Cliente' è obbligatorio!")
                         else:
-                            inserisci_referral(recruiter_id_new, cliente_nome_new, data_referral_new, stato_referral_new)
-                            modifica_referral(ref_id, recruiter_id_new, cliente_nome_new, data_referral_new, stato_referral_new)
+                            data_referral_new_str = data_referral_new.strftime('%Y-%m-%d')
+                            modifica_referral(ref_id, recruiter_id_new, cliente_nome_new, data_referral_new_str, stato_referral_new)
                     
                     if btn_del_ref:
                         elimina_referral(ref_id)
@@ -1297,10 +1315,15 @@ elif scelta == "Gestione":
                 with st.expander(f"Formazione ID {form_id} - {corso_nome}"):
                     recruiters = carica_recruiters()
                     recruiter_nomi = [r['nome'] for r in recruiters]
+                    try:
+                        recruiter_current_name = next(r['nome'] for r in recruiters if r['id'] == recruiter_id)
+                    except StopIteration:
+                        recruiter_current_name = "Recruiter Non Trovato"
+
                     recruiter_sel = st.selectbox(
                         "Recruiter", 
                         recruiter_nomi, 
-                        index=recruiter_nomi.index(next(r['nome'] for r in recruiters if r['id'] == recruiter_id)),
+                        index=recruiter_nomi.index(recruiter_current_name) if recruiter_current_name in recruiter_nomi else 0,
                         key=f"recruiter_formazione_{form_id}"
                     )
                     recruiter_id_new = None
@@ -1311,13 +1334,13 @@ elif scelta == "Gestione":
                     
                     corso_nome_new = st.text_input("Nome Corso", value=corso_nome, key=f"corso_formazione_{form_id}")
                     try:
-                        data_completamento_new = datetime.strptime(data_completamento, '%Y-%m-%d').date()
+                        data_completamento_date = datetime.strptime(data_completamento, '%Y-%m-%d').date()
                     except ValueError:
-                        data_completamento_new = datetime.today().date()
+                        data_completamento_date = datetime.today().date()
 
                     data_completamento_new = st.date_input(
                         "Data Completamento", 
-                        value=data_completamento_new, 
+                        value=data_completamento_date, 
                         key=f"data_completamento_formazione_{form_id}"
                     )
                     
@@ -1331,7 +1354,8 @@ elif scelta == "Gestione":
                         if not corso_nome_new.strip():
                             st.error("Il campo 'Nome Corso' è obbligatorio!")
                         else:
-                            modifica_formazione(form_id, recruiter_id_new, corso_nome_new, data_completamento_new)
+                            data_completamento_new_str = data_completamento_new.strftime('%Y-%m-%d')
+                            modifica_formazione(form_id, recruiter_id_new, corso_nome_new, data_completamento_new_str)
                     
                     if btn_del_form:
                         elimina_formazione(form_id)
@@ -1427,27 +1451,30 @@ elif scelta == "Gestione":
                             break
 
                     candidato_nome_new = st.text_input("Nome Candidato", value=candidato_nome, key=f"candidato_nome_{cand_id}")
+                    
+                    # Gestione sicura delle date
                     try:
-                        data_inserimento_new = datetime.strptime(data_inserimento, '%Y-%m-%d').date()
+                        data_inserimento_date = datetime.strptime(data_inserimento, '%Y-%m-%d').date()
                     except ValueError:
-                        data_inserimento_new = datetime.today().date()
+                        data_inserimento_date = datetime.today().date()
 
                     data_inserimento_new = st.date_input(
                         "Data Inserimento", 
-                        value=data_inserimento_new, 
+                        value=data_inserimento_date, 
                         key=f"data_inserimento_candidato_{cand_id}"
                     )
+                    
                     if data_dimissioni:
                         try:
-                            data_dimissioni_new = datetime.strptime(data_dimissioni, '%Y-%m-%d').date()
+                            data_dimissioni_date = datetime.strptime(data_dimissioni, '%Y-%m-%d').date()
                         except ValueError:
-                            data_dimissioni_new = datetime.today().date()
+                            data_dimissioni_date = datetime.today().date()
                     else:
-                        data_dimissioni_new = None
+                        data_dimissioni_date = None
 
                     data_dimissioni_new = st.date_input(
                         "Data Dimissioni (lascia vuoto se ancora in posizione)", 
-                        value=data_dimissioni_new if data_dimissioni_new else None,
+                        value=data_dimissioni_date if data_dimissioni_date else None,
                         key=f"data_dimissioni_candidato_{cand_id}"
                     )
                     
