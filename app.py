@@ -1,13 +1,13 @@
-# app.py
-
 import streamlit as st
 import pandas as pd
 import pymysql
 from datetime import datetime, timedelta
 import plotly.express as px
+import matplotlib.pyplot as plt
 import os
 import zipfile  # Import per gestire ZIP
 from io import BytesIO
+import urllib.parse
 
 #######################################
 # FUNZIONI DI ACCESSO AL DB (MySQL)
@@ -16,202 +16,137 @@ from io import BytesIO
 def get_connection():
     """
     Ritorna una connessione MySQL usando pymysql.
-    Utilizza le variabili d'ambiente definite in Streamlit Secrets.
+    Sostituisci i parametri (host, port, user, password, database)
+    con quelli del tuo DB su Railway.
     """
-    try:
-        connection = pymysql.connect(
-            host=st.secrets["DB_HOST"],
-            port=int(st.secrets["DB_PORT"]),
-            user=st.secrets["DB_USER"],
-            password=st.secrets["DB_PASSWORD"],
-            database=st.secrets["DB_NAME"],
-            cursorclass=pymysql.cursors.DictCursor  # Per avere dizionari anziché tuple
-        )
-        return connection
-    except pymysql.err.OperationalError as e:
-        st.error("Impossibile connettersi al database. Controlla le credenziali e l'accessibilità del database.")
-        st.stop()
-    except Exception as e:
-        st.error(f"Errore inaspettato: {e}")
-        st.stop()
+    return pymysql.connect(
+        host="junction.proxy.rlwy.net",
+        port=14718,
+        user="root",
+        password="GoHrUNytXgoikyAkbwYQpYLnfuQVQdBM",
+        database="railway"
+    )
 
 def carica_settori():
     conn = get_connection()
-    try:
-        with conn.cursor() as c:
-            c.execute("SELECT id, nome FROM settori ORDER BY nome ASC")
-            settori = c.fetchall()
-    finally:
-        conn.close()
-    return settori
+    c = conn.cursor()
+    c.execute("SELECT id, nome FROM settori ORDER BY nome ASC")
+    rows = c.fetchall()
+    conn.close()
+    return rows
 
 def carica_project_managers():
     conn = get_connection()
-    try:
-        with conn.cursor() as c:
-            c.execute("SELECT id, nome FROM project_managers ORDER BY nome ASC")
-            project_managers = c.fetchall()
-    finally:
-        conn.close()
-    return project_managers
+    c = conn.cursor()
+    c.execute("SELECT id, nome FROM project_managers ORDER BY nome ASC")
+    rows = c.fetchall()
+    conn.close()
+    return rows
 
 def carica_recruiters():
     conn = get_connection()
-    try:
-        with conn.cursor() as c:
-            c.execute("SELECT id, nome FROM recruiters ORDER BY nome ASC")
-            recruiters = c.fetchall()
-    finally:
-        conn.close()
-    return recruiters
-
-def carica_candidati():
-    conn = get_connection()
-    try:
-        with conn.cursor() as c:
-            # Assicurati che la colonna sia 'recruiter_id' e non 'sales_recruiter_id'
-            c.execute("SELECT id, recruiter_id, candidato_nome, data_inserimento, data_placement, data_dimissioni FROM candidati")
-            candidati = c.fetchall()
-    finally:
-        conn.close()
-    return candidati
-
-def carica_riunioni():
-    conn = get_connection()
-    try:
-        with conn.cursor() as c:
-            # Verifica il nome corretto della colonna data_riunione
-            c.execute("SELECT id, recruiter_id, data_riunione, partecipato FROM riunioni")
-            riunioni = c.fetchall()
-    except pymysql.err.ProgrammingError as e:
-        st.error(f"Errore nella query delle riunioni: {e}")
-        riunioni = []
-    finally:
-        conn.close()
-    return riunioni
-
-def carica_referrals():
-    conn = get_connection()
-    try:
-        with conn.cursor() as c:
-            c.execute("SELECT id, recruiter_id, cliente_nome, data_referral, stato FROM referrals")
-            referrals = c.fetchall()
-    finally:
-        conn.close()
-    return referrals
-
-def carica_formazione():
-    conn = get_connection()
-    try:
-        with conn.cursor() as c:
-            c.execute("SELECT id, recruiter_id, corso_nome, data_completamento FROM formazione")
-            formazione = c.fetchall()
-    finally:
-        conn.close()
-    return formazione
+    c = conn.cursor()
+    c.execute("SELECT id, nome FROM recruiters ORDER BY nome ASC")
+    rows = c.fetchall()
+    conn.close()
+    return rows
 
 def inserisci_dati(cliente, settore_id, pm_id, rec_id, data_inizio):
     """
     Inserisce un nuovo progetto in MySQL.
     """
     conn = get_connection()
-    try:
-        with conn.cursor() as c:
-            # Valori di default
-            stato_progetto = None
-            data_fine = None
-            tempo_totale = None
-            recensione_stelle = None
-            recensione_data = None
-            tempo_previsto = None  # gestito altrove
+    c = conn.cursor()
 
-            query = """
-                INSERT INTO progetti (
-                    cliente,
-                    settore_id,
-                    project_manager_id,
-                    sales_recruiter_id,
-                    stato_progetto,
-                    data_inizio,
-                    data_fine,
-                    tempo_totale,
-                    recensione_stelle,
-                    recensione_data,
-                    tempo_previsto
-                )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """
-            c.execute(query, (
-                cliente,
-                settore_id,
-                pm_id,
-                rec_id,
-                stato_progetto,
-                data_inizio,
-                data_fine,
-                tempo_totale,
-                recensione_stelle,
-                recensione_data,
-                tempo_previsto
-            ))
-        conn.commit()
-    except pymysql.Error as e:
-        st.error(f"Errore nell'inserimento del progetto: {e}")
-    finally:
-        conn.close()
+    # Valori di default
+    stato_progetto = None
+    data_fine = None
+    tempo_totale = None
+    recensione_stelle = None
+    recensione_data = None
+    tempo_previsto = None  # gestito altrove
+
+    query = """
+        INSERT INTO progetti (
+            cliente,
+            settore_id,
+            project_manager_id,
+            sales_recruiter_id,
+            stato_progetto,
+            data_inizio,
+            data_fine,
+            tempo_totale,
+            recensione_stelle,
+            recensione_data,
+            tempo_previsto
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    """
+    c.execute(query, (
+        cliente,
+        settore_id,
+        pm_id,
+        rec_id,
+        stato_progetto,
+        data_inizio,
+        data_fine,
+        tempo_totale,
+        recensione_stelle,
+        recensione_data,
+        tempo_previsto
+    ))
+    conn.commit()
+    conn.close()
+
+    # Esegui backup (ZIP)
+    backup_database()
 
 def carica_dati_completo():
     """
     Carica i progetti uniti a settori, pm, recruiters, includendo 'tempo_previsto'.
     """
     conn = get_connection()
-    try:
-        with conn.cursor() as c:
-            query = """
-                SELECT
-                    p.id,
-                    p.cliente,
-                    s.nome AS settore,
-                    pm.nome AS project_manager,
-                    r.nome AS sales_recruiter,
-                    p.stato_progetto,
-                    p.data_inizio,
-                    p.data_fine,
-                    p.tempo_totale,
-                    p.recensione_stelle,
-                    p.recensione_data,
-                    p.tempo_previsto
-                FROM progetti p
-                JOIN settori s ON p.settore_id = s.id
-                JOIN project_managers pm ON p.project_manager_id = pm.id
-                JOIN recruiters r ON p.sales_recruiter_id = r.id
-            """
-            c.execute(query)
-            rows = c.fetchall()
+    c = conn.cursor()
+    query = """
+        SELECT
+            p.id,
+            p.cliente,
+            s.nome AS settore,
+            pm.nome AS project_manager,
+            r.nome AS sales_recruiter,
+            p.stato_progetto,
+            p.data_inizio,
+            p.data_fine,
+            p.tempo_totale,
+            p.recensione_stelle,
+            p.recensione_data,
+            p.tempo_previsto
+        FROM progetti p
+        JOIN settori s ON p.settore_id = s.id
+        JOIN project_managers pm ON p.project_manager_id = pm.id
+        JOIN recruiters r ON p.sales_recruiter_id = r.id
+    """
+    c.execute(query)
+    rows = c.fetchall()
 
-        columns = [
-            'id','cliente','settore','project_manager','sales_recruiter',
-            'stato_progetto','data_inizio','data_fine','tempo_totale',
-            'recensione_stelle','recensione_data','tempo_previsto'
-        ]
+    columns = [
+        'id','cliente','settore','project_manager','sales_recruiter',
+        'stato_progetto','data_inizio','data_fine','tempo_totale',
+        'recensione_stelle','recensione_data','tempo_previsto'
+    ]
+    conn.close()
 
-        df = pd.DataFrame(rows, columns=columns)
-        
-        # Convertiamo 'tempo_previsto' a numerico
-        if "tempo_previsto" in df.columns:
-            df["tempo_previsto"] = pd.to_numeric(df["tempo_previsto"], errors="coerce")
-            df["tempo_previsto"] = df["tempo_previsto"].fillna(0).astype(int)
-        
-        # Aggiungi 'data_inizio_dt' e 'recensione_data_dt' subito dopo
-        df['data_inizio_dt'] = pd.to_datetime(df['data_inizio'], errors='coerce')
-        df['recensione_data_dt'] = pd.to_datetime(df['recensione_data'], errors='coerce')
-        
-    except pymysql.Error as e:
-        st.error(f"Errore nel caricamento dei dati completi: {e}")
-        df = pd.DataFrame()
-    finally:
-        conn.close()
-
+    df = pd.DataFrame(rows, columns=columns)
+    
+    # Convertiamo 'tempo_previsto' a numerico
+    if "tempo_previsto" in df.columns:
+        df["tempo_previsto"] = pd.to_numeric(df["tempo_previsto"], errors="coerce")
+        df["tempo_previsto"] = df["tempo_previsto"].fillna(0).astype(int)
+    
+    # Aggiungi 'data_inizio_dt' e 'recensione_data_dt' subito dopo
+    df['data_inizio_dt'] = pd.to_datetime(df['data_inizio'], errors='coerce')
+    df['recensione_data_dt'] = pd.to_datetime(df['recensione_data'], errors='coerce')
+    
     return df
 
 #######################################
@@ -250,33 +185,27 @@ def backup_database():
     # Crea un nuovo archivio ZIP, sovrascrivendo quello esistente
     with zipfile.ZipFile(backup_zip_path, 'w', zipfile.ZIP_DEFLATED) as backup_zip:
         conn = get_connection()
-        try:
-            with conn.cursor() as c:
-                # Legge l’elenco delle tabelle
-                c.execute("SHOW TABLES")
-                tables = c.fetchall()
+        c = conn.cursor()
 
-                st.info("Inizio backup MySQL in ZIP...")
+        # Legge l’elenco delle tabelle
+        c.execute("SHOW TABLES")
+        tables = c.fetchall()
 
-                for (table_name,) in tables:
-                    # Query: SELECT * FROM <table_name>
-                    c.execute(f"SELECT * FROM {table_name}")
-                    rows = c.fetchall()
-                    if not rows:
-                        st.warning(f"Nessun dato trovato nella tabella {table_name}.")
-                        continue
-                    col_names = rows[0].keys()
+        st.info("Inizio backup MySQL in ZIP...")
 
-                    df_table = pd.DataFrame(rows)
-                    csv_data = df_table.to_csv(index=False, encoding="utf-8")
+        for (table_name,) in tables:
+            # Query: SELECT * FROM <table_name>
+            c.execute(f"SELECT * FROM {table_name}")
+            rows = c.fetchall()
+            col_names = [desc[0] for desc in c.description]
 
-                    # Scrivi il CSV direttamente nell'archivio ZIP
-                    backup_zip.writestr(f"{table_name}.csv", csv_data)
+            df_table = pd.DataFrame(rows, columns=col_names)
+            csv_data = df_table.to_csv(index=False, encoding="utf-8")
 
-        except pymysql.Error as e:
-            st.error(f"Errore durante il backup: {e}")
-        finally:
-            conn.close()
+            # Scrivi il CSV direttamente nell'archivio ZIP
+            backup_zip.writestr(f"{table_name}.csv", csv_data)
+
+        conn.close()
     
     st.success("Backup completato: archivio ZIP creato in /backup/backup.zip.")
 
@@ -298,92 +227,83 @@ def restore_from_zip(zip_file):
             return
 
         conn = get_connection()
-        try:
-            with conn.cursor() as c:
-                st.info("Inizio ripristino database da ZIP...")
+        c = conn.cursor()
 
-                for csv_file in csv_files:
-                    table_name = os.path.splitext(os.path.basename(csv_file))[0]
-                    st.write(f"Ripristino tabella '{table_name}'...")
+        st.info("Inizio ripristino database da ZIP...")
 
-                    # Leggi il contenuto del CSV
-                    with backup_zip.open(csv_file) as f:
-                        df = pd.read_csv(f)
+        for csv_file in csv_files:
+            table_name = os.path.splitext(os.path.basename(csv_file))[0]
+            st.write(f"Ripristino tabella '{table_name}'...")
 
-                    # Esegui TRUNCATE sulla tabella
-                    try:
-                        c.execute(f"TRUNCATE TABLE {table_name}")
-                    except pymysql.Error as e:
-                        st.error(f"Errore TRUNCATE {table_name}: {e}")
-                        conn.close()
-                        return
+            # Leggi il contenuto del CSV
+            with backup_zip.open(csv_file) as f:
+                df = pd.read_csv(f)
 
-                    # Prepara le colonne e i placeholder per l'INSERT
-                    col_names = df.columns.tolist()
-                    placeholders = ",".join(["%s"] * len(col_names))
-                    col_list_str = ",".join(col_names)
-                    insert_query = f"INSERT INTO {table_name} ({col_list_str}) VALUES ({placeholders})"
+            # Esegui TRUNCATE sulla tabella
+            try:
+                c.execute(f"TRUNCATE TABLE {table_name}")
+            except pymysql.Error as e:
+                st.error(f"Errore TRUNCATE {table_name}: {e}")
+                conn.close()
+                return
 
-                    # Inserisci le righe
-                    try:
-                        for row in df.itertuples(index=False, name=None):
-                            c.execute(insert_query, row)
-                    except pymysql.Error as e:
-                        st.error(f"Errore durante l'INSERT nella tabella {table_name}: {e}")
-                        conn.rollback()
-                        conn.close()
-                        return
+            # Prepara le colonne e i placeholder per l'INSERT
+            col_names = df.columns.tolist()
+            placeholders = ",".join(["%s"] * len(col_names))
+            col_list_str = ",".join(col_names)
+            insert_query = f"INSERT INTO {table_name} ({col_list_str}) VALUES ({placeholders})"
 
-        except pymysql.Error as e:
-            st.error(f"Errore nel ripristino del database: {e}")
-            conn.rollback()
-        finally:
-            conn.commit()
-            conn.close()
-    
-    st.success("Ripristino completato con successo da ZIP.")
+            # Inserisci le righe
+            try:
+                for row in df.itertuples(index=False, name=None):
+                    c.execute(insert_query, row)
+            except pymysql.Error as e:
+                st.error(f"Errore durante l'INSERT nella tabella {table_name}: {e}")
+                conn.rollback()
+                conn.close()
+                return
+
+        conn.commit()
+        conn.close()
+        st.success("Ripristino completato con successo da ZIP.")
 
 #######################################
 # CAPACITA' PER RECRUITER
 #######################################
 def carica_recruiters_capacity():
     conn = get_connection()
-    try:
-        with conn.cursor() as c:
-            c.execute('''
-                SELECT r.id, r.nome AS sales_recruiter,
-                       IFNULL(rc.capacity_max, 5) AS capacity
-                FROM recruiters r
-                LEFT JOIN recruiter_capacity rc ON r.id = rc.recruiter_id
-                ORDER BY r.nome
-            ''')
-            rows = c.fetchall()
-    finally:
-        conn.close()
-    df_capacity = pd.DataFrame(rows, columns=['id', 'sales_recruiter', 'capacity'])
+    c = conn.cursor()
+    query = '''
+        SELECT r.nome AS sales_recruiter,
+               IFNULL(rc.capacity_max, 5) AS capacity
+        FROM recruiters r
+        LEFT JOIN recruiter_capacity rc ON r.id = rc.recruiter_id
+        ORDER BY r.nome
+    '''
+    c.execute(query)
+    rows = c.fetchall()
+    df_capacity = pd.DataFrame(rows, columns=['sales_recruiter', 'capacity'])
+    conn.close()
     return df_capacity
 
 #######################################
 # FUNZIONE PER CALCOLARE LEADERBOARD MENSILE
 #######################################
-def calcola_leaderboard_mensile(df_progetti, df_candidati, df_riunioni, df_referrals, df_formazione, start_date, end_date):
-    """
-    Calcola la leaderboard basata su vari criteri di punteggio.
-    """
-    # Filtra i progetti completati nel periodo
-    df_temp = df_progetti.copy()
+def calcola_leaderboard_mensile(df, start_date, end_date):
+    df_temp = df.copy()
     df_temp['data_inizio_dt'] = pd.to_datetime(df_temp['data_inizio'], errors='coerce')
-    df_temp['data_fine_dt'] = pd.to_datetime(df_temp['data_fine'], errors='coerce')
     df_temp['recensione_stelle'] = df_temp['recensione_stelle'].fillna(0).astype(int)
 
-    # Bonus da recensioni
-    df_temp['bonus_recensione'] = df_temp['recensione_stelle'].apply(calcola_bonus)
+    # bonus da recensioni
+    def bonus_stelle(stelle):
+        if stelle == 4:
+            return 300
+        elif stelle == 5:
+            return 500
+        return 0
+    
+    df_temp['bonus'] = df_temp['recensione_stelle'].apply(bonus_stelle)
 
-    # Punteggio per completamento rapido (<60 giorni)
-    df_temp['giorni_completamento'] = (df_temp['data_fine_dt'] - df_temp['data_inizio_dt']).dt.days
-    df_temp['bonus_completamento'] = df_temp['giorni_completamento'].apply(lambda x: 50 if x < 60 else 0)
-
-    # Filtro progetti completati nel periodo
     mask = (
         (df_temp['stato_progetto'] == 'Completato') &
         (df_temp['data_inizio_dt'] >= pd.Timestamp(start_date)) &
@@ -393,152 +313,39 @@ def calcola_leaderboard_mensile(df_progetti, df_candidati, df_riunioni, df_refer
 
     if df_filtro.empty:
         return pd.DataFrame([], columns=[
-            'sales_recruiter','completati','tempo_medio','bonus_totale','bonus_completamento',
-            'bonus_retenzione','bonus_riunioni','bonus_referrals','bonus_formazione','punteggio','badge'
+            'sales_recruiter','completati','tempo_medio','bonus_totale','punteggio','badge'
         ])
 
-    # Calcola completati e tempo medio
     group = df_filtro.groupby('sales_recruiter')
     completati = group.size().reset_index(name='completati')
     tempo_medio = group['tempo_totale'].mean().reset_index(name='tempo_medio')
-    bonus_recensione = group['bonus_recensione'].sum().reset_index(name='bonus_totale')
-    bonus_completamento = group['bonus_completamento'].sum().reset_index(name='bonus_completamento')
+    bonus_sum = group['bonus'].sum().reset_index(name='bonus_totale')
 
-    # Calcola bonus per retenzione
-    df_candidati_filtered = pd.DataFrame(df_candidati)
-    if 'recruiter_id' not in df_candidati_filtered.columns:
-        st.error("La colonna 'recruiter_id' non esiste nella tabella 'candidati'.")
-        st.stop()
-    df_candidati_filtered['data_placement_dt'] = pd.to_datetime(df_candidati_filtered['data_placement'], errors='coerce')
-    df_candidati_filtered['data_dimissioni_dt'] = pd.to_datetime(df_candidati_filtered['data_dimissioni'], errors='coerce')
-
-    # Calcola mesi di permanenza
-    df_candidati_filtered['mesi_permanenza'] = ((df_candidati_filtered['data_dimissioni_dt'] - df_candidati_filtered['data_placement_dt']).dt.days) / 30
-
-    # Candidati che rimangono >=6 mesi
-    df_retenzione_stayed = df_candidati_filtered[df_candidati_filtered['mesi_permanenza'] >= 6]
-    bonus_retenzione = df_retenzione_stayed.groupby('recruiter_id').size().reset_index(name='bonus_retenzione')
-    bonus_retenzione['bonus_retenzione'] = bonus_retenzione['bonus_retenzione'] * 300
-
-    # Candidati che lasciano <=3 mesi
-    df_retenzione_left = df_candidati_filtered[df_candidati_filtered['mesi_permanenza'] <= 3]
-    bonus_retenzione_left = df_retenzione_left.groupby('recruiter_id').size().reset_index(name='bonus_retenzione_left')
-    bonus_retenzione_left['bonus_retenzione_left'] = bonus_retenzione_left['bonus_retenzione_left'] * -200
-
-    # Merge bonus_retenzione e bonus_retenzione_left
-    bonus_retenzione_total = pd.merge(bonus_retenzione, bonus_retenzione_left, on='recruiter_id', how='outer').fillna(0)
-    bonus_retenzione_total['bonus_retenzione'] = bonus_retenzione_total['bonus_retenzione'] + bonus_retenzione_total['bonus_retenzione_left']
-    bonus_retenzione_total = bonus_retenzione_total[['recruiter_id', 'bonus_retenzione']]
-
-    # Calcola bonus per riunioni partecipate
-    df_riunioni_filtered = pd.DataFrame(df_riunioni)
-    if 'data_riunione' not in df_riunioni_filtered.columns:
-        st.error("La colonna 'data_riunione' non esiste nella tabella 'riunioni'.")
-        st.stop()
-    df_riunioni_filtered['data_riunione_dt'] = pd.to_datetime(df_riunioni_filtered['data_riunione'], errors='coerce')
-    df_riunioni_filtered = df_riunioni_filtered[
-        (df_riunioni_filtered['data_riunione_dt'] >= pd.Timestamp(start_date)) &
-        (df_riunioni_filtered['data_riunione_dt'] <= pd.Timestamp(end_date)) &
-        (df_riunioni_filtered['partecipato'] == True)
-    ]
-    bonus_riunioni = df_riunioni_filtered.groupby('recruiter_id').size().reset_index(name='bonus_riunioni')
-    bonus_riunioni['bonus_riunioni'] = bonus_riunioni['bonus_riunioni'] * 100
-
-    # Calcola bonus per referrals
-    df_referrals_filtered = pd.DataFrame(df_referrals)
-    df_referrals_filtered['data_referral_dt'] = pd.to_datetime(df_referrals_filtered['data_referral'], errors='coerce')
-    # Considera solo referrals nel periodo e con stato 'Chiuso' (nuovo cliente acquisito)
-    df_referrals_filtered = df_referrals_filtered[
-        (df_referrals_filtered['data_referral_dt'] >= pd.Timestamp(start_date)) &
-        (df_referrals_filtered['data_referral_dt'] <= pd.Timestamp(end_date)) &
-        (df_referrals_filtered['stato'] == 'Chiuso')
-    ]
-    bonus_referrals = df_referrals_filtered.groupby('recruiter_id').size().reset_index(name='bonus_referrals')
-    bonus_referrals['bonus_referrals'] = bonus_referrals['bonus_referrals'] * 1000
-
-    # Calcola bonus per formazione
-    df_formazione_filtered = pd.DataFrame(df_formazione)
-    df_formazione_filtered['data_completamento_dt'] = pd.to_datetime(df_formazione_filtered['data_completamento'], errors='coerce')
-    df_formazione_filtered = df_formazione_filtered[
-        (df_formazione_filtered['data_completamento_dt'] >= pd.Timestamp(start_date)) &
-        (df_formazione_filtered['data_completamento_dt'] <= pd.Timestamp(end_date))
-    ]
-    bonus_formazione = df_formazione_filtered.groupby('recruiter_id').size().reset_index(name='bonus_formazione')
-    bonus_formazione['bonus_formazione'] = bonus_formazione['bonus_formazione'] * 300
-
-    # Merge tutti i bonus
-    leaderboard = completati.merge(tempo_medio, on='sales_recruiter', how='left')
-    leaderboard = leaderboard.merge(bonus_recensione, on='sales_recruiter', how='left')
-    leaderboard = leaderboard.merge(bonus_completamento, on='sales_recruiter', how='left')
-
-    # Mappa recruiter_id a sales_recruiter
-    # Creiamo un dizionario per mappare recruiter_id a nome
-    recruiters = carica_recruiters()
-    recruiter_id_map = {r['id']: r['nome'] for r in recruiters}
-
-    # Aggiungi recruiter_id al DataFrame completati
-    completati = completati.rename(columns={'sales_recruiter': 'recruiter_name'})
-    completati['recruiter_id'] = completati['recruiter_name'].map(
-        lambda x: next((r['id'] for r in recruiters if r['nome'] == x), None)
+    leaderboard = (
+        completati
+        .merge(tempo_medio, on='sales_recruiter', how='left')
+        .merge(bonus_sum, on='sales_recruiter', how='left')
     )
 
-    # Merge con bonus_retenzione_total
-    leaderboard = leaderboard.merge(bonus_retenzione_total, left_on='sales_recruiter', right_on='recruiter_id', how='left')
-    leaderboard['bonus_retenzione'] = leaderboard['bonus_retenzione'].fillna(0)
-
-    # Merge con bonus_riunioni
-    leaderboard = leaderboard.merge(bonus_riunioni, left_on='sales_recruiter', right_on='recruiter_id', how='left')
-    leaderboard['bonus_riunioni'] = leaderboard['bonus_riunioni'].fillna(0)
-
-    # Merge con bonus_referrals
-    leaderboard = leaderboard.merge(bonus_referrals, left_on='sales_recruiter', right_on='recruiter_id', how='left')
-    leaderboard['bonus_referrals'] = leaderboard['bonus_referrals'].fillna(0)
-
-    # Merge con bonus_formazione
-    leaderboard = leaderboard.merge(bonus_formazione, left_on='sales_recruiter', right_on='recruiter_id', how='left')
-    leaderboard['bonus_formazione'] = leaderboard['bonus_formazione'].fillna(0)
-
-    # Calcola punteggio totale
+    leaderboard['tempo_medio'] = leaderboard['tempo_medio'].fillna(0)
+    leaderboard['bonus_totale'] = leaderboard['bonus_totale'].fillna(0)
     leaderboard['punteggio'] = (
-        leaderboard['completati'] * 10 +
-        leaderboard['bonus_totale'] +
-        leaderboard['bonus_completamento'] +
-        leaderboard['bonus_retenzione'] +
-        leaderboard['bonus_riunioni'] +
-        leaderboard['bonus_referrals'] +
-        leaderboard['bonus_formazione']
+        leaderboard['completati'] * 10
+        + leaderboard['bonus_totale']
+        + leaderboard['tempo_medio'].apply(lambda x: max(0, 30 - x))
     )
 
-    # Assegna badge
-    def assegna_badge(punteggio):
-        if punteggio >= 10000:
+    def assegna_badge(n):
+        if n >= 20:
             return "Gold"
-        elif punteggio >= 5000:
+        elif n >= 10:
             return "Silver"
-        elif punteggio >= 2000:
+        elif n >= 5:
             return "Bronze"
-        return "Grey"
-
-    leaderboard['badge'] = leaderboard['punteggio'].apply(assegna_badge)
-
-    # Ordina per punteggio
+        return ""
+    
+    leaderboard['badge'] = leaderboard['completati'].apply(assegna_badge)
     leaderboard = leaderboard.sort_values('punteggio', ascending=False)
-
-    # Rinomina le colonne per chiarezza
-    leaderboard = leaderboard.rename(columns={
-        'sales_recruiter': 'Sales Recruiter',
-        'completati': 'Progetti Completati',
-        'tempo_medio': 'Tempo Medio (giorni)',
-        'bonus_totale': 'Bonus Recensioni (€)',
-        'bonus_completamento': 'Bonus Completamento Rapido (€)',
-        'bonus_retenzione': 'Bonus Retenzione (€)',
-        'bonus_riunioni': 'Bonus Riunioni (€)',
-        'bonus_referrals': 'Bonus Referrals (€)',
-        'bonus_formazione': 'Bonus Formazione (€)',
-        'punteggio': 'Punteggio Totale',
-        'badge': 'Badge'
-    })
-
     return leaderboard
 
 #######################################
@@ -584,41 +391,36 @@ if scelta == "Inserisci Dati":
         cliente = st.text_input("Nome Cliente")
         
         # Settore
-        settori_nomi = [s['nome'] for s in settori_db]
+        settori_nomi = [s[1] for s in settori_db]
         settore_sel = st.selectbox("Settore Cliente", settori_nomi)
         settore_id = None
         for s in settori_db:
-            if s['nome'] == settore_sel:
-                settore_id = s['id']
+            if s[1] == settore_sel:
+                settore_id = s[0]
                 break
         
         # Project Manager
-        pm_nomi = [p['nome'] for p in pm_db]
+        pm_nomi = [p[1] for p in pm_db]
         pm_sel = st.selectbox("Project Manager", pm_nomi)
         pm_id = None
         for p in pm_db:
-            if p['nome'] == pm_sel:
-                pm_id = p['id']
+            if p[1] == pm_sel:
+                pm_id = p[0]
                 break
         
         # Recruiter
-        rec_nomi = [r['nome'] for r in rec_db]
+        rec_nomi = [r[1] for r in rec_db]
         rec_sel = st.selectbox("Sales Recruiter", rec_nomi)
         rec_id = None
         for r in rec_db:
-            if r['nome'] == rec_sel:
-                rec_id = r['id']
+            if r[1] == rec_sel:
+                rec_id = r[0]
                 break
         
-        # Data di Inizio
         data_inizio_str = st.text_input("Data di Inizio (GG/MM/AAAA)", 
                                         value="", 
                                         placeholder="Lascia vuoto se non disponibile")
 
-        # Tempo Previsto
-        tempo_previsto = st.number_input("Tempo Previsto (giorni)", min_value=0, step=1, value=0)
-
-        # Pulsante di Submit
         submitted = st.form_submit_button("Inserisci Progetto")
         if submitted:
             if not cliente.strip():
@@ -643,17 +445,13 @@ if scelta == "Inserisci Dati":
 #######################################
 elif scelta == "Dashboard":
     st.header("Dashboard di Controllo")
-    df_progetti = carica_dati_completo()
-    df_candidati = carica_candidati()
-    df_riunioni = carica_riunioni()
-    df_referrals = carica_referrals()
-    df_formazione = carica_formazione()
+    df = carica_dati_completo()
     
-    if df_progetti.empty:
+    if df.empty:
         st.info("Nessun progetto disponibile nel DB.")
     else:
         # Creiamo le Tab
-        tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        tab1, tab2, tab3, tab4, tab6 = st.tabs([
             "Panoramica",
             "Carico Proiettato / Previsione",
             "Bonus e Premi",
@@ -669,7 +467,7 @@ elif scelta == "Dashboard":
 
             # Filtro per Anno
             st.markdown("### Filtro per Anno")
-            anni_disponibili = sorted(df_progetti['data_inizio_dt'].dt.year.dropna().unique())
+            anni_disponibili = sorted(df['data_inizio_dt'].dt.year.dropna().unique())
             if len(anni_disponibili) == 0:
                 st.warning("Nessun dato disponibile per i filtri.")
                 st.stop()
@@ -685,9 +483,9 @@ elif scelta == "Dashboard":
                 st.error(f"Errore nella selezione di Anno: {e}")
                 st.stop()
 
-            df_filtered = df_progetti[
-                (df_progetti['data_inizio_dt'] >= pd.Timestamp(start_date)) &
-                (df_progetti['data_inizio_dt'] <= pd.Timestamp(end_date))
+            df_filtered = df[
+                (df['data_inizio_dt'] >= pd.Timestamp(start_date)) &
+                (df['data_inizio_dt'] <= pd.Timestamp(end_date))
             ]
 
             if df_filtered.empty:
@@ -741,7 +539,7 @@ elif scelta == "Dashboard":
 
                 st.subheader("Capacità di Carico e Over Capacity")
                 df_capacity = carica_recruiters_capacity()
-                recruiters_unici = df_progetti['sales_recruiter'].unique()
+                recruiters_unici = df['sales_recruiter'].unique()
                 cap_df = pd.DataFrame({'sales_recruiter': recruiters_unici})
                 cap_df = cap_df.merge(attivi_count, on='sales_recruiter', how='left').fillna(0)
                 cap_df = cap_df.merge(df_capacity, on='sales_recruiter', how='left').fillna(5)
@@ -776,7 +574,7 @@ elif scelta == "Dashboard":
             """)
 
             # In carica_dati_completo() abbiamo convertito tempo_previsto in int
-            df_ok = df_progetti[(df_progetti['tempo_previsto'].notna()) & (df_progetti['tempo_previsto'] > 0)]
+            df_ok = df[(df['tempo_previsto'].notna()) & (df['tempo_previsto'] > 0)]
             df_ok['fine_calcolata'] = pd.to_datetime(df_ok['data_inizio'], errors='coerce') + \
                                       pd.to_timedelta(df_ok['tempo_previsto'], unit='D')
 
@@ -796,7 +594,7 @@ elif scelta == "Dashboard":
                 st.subheader("Recruiter che si libereranno in questo orizzonte")
                 closings = df_prossimi.groupby('sales_recruiter').size().reset_index(name='progetti_che_chiudono')
                 df_capacity = carica_recruiters_capacity()
-                df_attivi = df_progetti[df_progetti['stato_progetto'].isin(["In corso","Bloccato"])]
+                df_attivi = df[df['stato_progetto'].isin(["In corso","Bloccato"])]
                 attivi_count = df_attivi.groupby('sales_recruiter').size().reset_index(name='Progetti Attivi')
 
                 rec_df = df_capacity.merge(attivi_count, on='sales_recruiter', how='left').fillna(0)
@@ -827,7 +625,7 @@ elif scelta == "Dashboard":
                 Esempio: 4 stelle => 300€, 5 stelle => 500€.
             """)
             st.markdown("### Filtro per Anno")
-            anni_disponibili_bonus = sorted(df_progetti['data_inizio_dt'].dt.year.dropna().unique())
+            anni_disponibili_bonus = sorted(df['data_inizio_dt'].dt.year.dropna().unique())
             if len(anni_disponibili_bonus) == 0:
                 st.warning("Nessun dato disponibile per il filtro dei bonus.")
                 st.stop()
@@ -844,24 +642,145 @@ elif scelta == "Dashboard":
                 st.stop()
 
             # Calcola il bonus totale per ogni recruiter
-            df_bonus_totale = df_progetti[
-                (df_progetti['recensione_data_dt'] >= pd.Timestamp(start_date_bonus)) & 
-                (df_progetti['recensione_data_dt'] <= pd.Timestamp(end_date_bonus))
+            df_bonus_totale = df[
+                (df['recensione_data_dt'] >= pd.Timestamp(start_date_bonus)) & 
+                (df['recensione_data_dt'] <= pd.Timestamp(end_date_bonus))
             ].copy()
             df_bonus_totale['bonus'] = df_bonus_totale['recensione_stelle'].fillna(0).astype(int).apply(calcola_bonus)
             bonus_rec = df_bonus_totale.groupby('sales_recruiter')['bonus'].sum().reset_index()
+            
+            # Calcola il bonus totale per ogni recruiter
+            df_bonus_totale = df_bonus_totale.groupby('sales_recruiter')['bonus'].sum().reset_index(name='bonus_totale')
 
-            # Calcola il punteggio totale considerando i nuovi criteri
-            leaderboard_df = calcola_leaderboard_mensile(
-                df_progetti=df_progetti,
-                df_candidati=df_candidati,
-                df_riunioni=df_riunioni,
-                df_referrals=df_referrals,
-                df_formazione=df_formazione,
-                start_date=start_date_bonus,
-                end_date=end_date_bonus
+            # Calcola la percentuale verso il 1000€
+            df_bonus_totale['percentuale'] = (df_bonus_totale['bonus_totale'] / 1000) * 100
+            df_bonus_totale['percentuale'] = df_bonus_totale['percentuale'].apply(lambda x: min(x, 100))  # Limita al 100%
+
+            # Ordina per percentuale
+            df_bonus_totale = df_bonus_totale.sort_values(by='percentuale', ascending=False)
+
+            st.write(f"Progetti con recensione in questo anno: {len(df_bonus_totale)}")
+
+            # **Nuovo Grafico: Avvicinamento al Premio Annuale di 1000€**
+            st.markdown("### Avvicinamento al Premio Annuale di 1000€")
+            fig_premio = px.bar(
+                df_bonus_totale,
+                y='sales_recruiter',
+                x='percentuale',
+                orientation='h',
+                labels={'percentuale': 'Percentuale verso 1000€', 'sales_recruiter': 'Recruiter'},
+                title='Avvicinamento al Premio Annuale di 1000€',
+                text=df_bonus_totale['percentuale'].apply(lambda x: f"{x:.1f}%")
             )
 
+            # Aggiungi una linea verticale al 100%
+            fig_premio.add_shape(
+                type="line",
+                x0=100,
+                y0=-0.5,
+                x1=100,
+                y1=len(df_bonus_totale),
+                line=dict(color="Red", dash="dash"),
+            )
+
+            # Aggiorna layout per migliorare la leggibilità
+            fig_premio.update_layout(
+                yaxis=dict(categoryorder='total ascending'),
+                xaxis=dict(range=[0, 110]),
+                showlegend=False,
+                margin=dict(l=100, r=50, t=50, b=50)
+            )
+
+            fig_premio.update_traces(marker_color='skyblue')
+
+            st.plotly_chart(fig_premio, use_container_width=True, key='premio_annual_chart')  # Chiave unica
+
+            # **Aggiornamento del Testo per "Premio Annuale (Recensioni a 5 stelle)"**
+            st.subheader("Premio Annuale (Recensioni a 5 stelle)")
+            # Rimosso il testo statico con il placeholder
+
+            # **Nuova Implementazione: Premiazione Basata sulle Recensioni a 5 Stelle**
+            # Contare il numero di recensioni a 5 stelle per ogni recruiter
+            df_reviews_5 = df[
+                (df['recensione_stelle'] == 5) &
+                (df['recensione_data_dt'] >= pd.Timestamp(start_date_bonus)) &
+                (df['recensione_data_dt'] <= pd.Timestamp(end_date_bonus))
+            ]
+
+            if not df_reviews_5.empty:
+                count_reviews = df_reviews_5.groupby('sales_recruiter').size().reset_index(name='recensioni_5_stelle')
+                max_reviews = count_reviews['recensioni_5_stelle'].max()
+                top_recruiters = count_reviews[count_reviews['recensioni_5_stelle'] == max_reviews]
+
+                if len(top_recruiters) == 1:
+                    st.success(f"Il premio annuale va a {top_recruiters.iloc[0]['sales_recruiter']} con {top_recruiters.iloc[0]['recensioni_5_stelle']} recensioni a 5 stelle!")
+                else:
+                    st.success(f"Premio annuale condiviso tra: {', '.join(top_recruiters['sales_recruiter'])}, ciascuno con {max_reviews} recensioni a 5 stelle!")
+            else:
+                st.info("Nessun recruiter ha ricevuto recensioni a 5 stelle quest'anno.")
+
+        ################################
+        # TAB 4: Backup
+        ################################
+        with tab4:
+            st.subheader("Gestione Backup (Esportazione e Ripristino)")
+            
+            st.markdown("### Esporta Dati in ZIP")
+            if st.button("Esegui Backup Ora", key='backup_now'):
+                with st.spinner("Eseguendo il backup..."):
+                    backup_database()
+
+            backup_zip_path = os.path.join('backup', 'backup.zip')
+            if os.path.exists(backup_zip_path):
+                with open(backup_zip_path, 'rb') as f:
+                    st.download_button(
+                        label="Scarica Backup ZIP",
+                        data=f,
+                        file_name="backup.zip",
+                        mime='application/zip'
+                    )
+            else:
+                st.info("Nessun file ZIP di backup presente.")
+            
+            st.markdown("---")
+            st.markdown("### Ripristina Dati da ZIP")
+            uploaded_zip = st.file_uploader("Carica l'archivio ZIP di backup", type=['zip'], key='upload_zip')
+            if uploaded_zip is not None:
+                if st.button("Ripristina DB da ZIP", key='restore_db'):
+                    with st.spinner("Ripristinando il database..."):
+                        restore_from_zip(uploaded_zip)
+
+        ################################
+        # TAB 5: Classifica
+        ################################
+        with tab6:
+            st.subheader("Classifica (Matplotlib)")
+
+            st.markdown("### Filtro per Anno")
+            anni_leader = sorted(df['data_inizio_dt'].dt.year.dropna().unique())
+            if len(anni_leader) == 0:
+                st.warning("Nessun dato disponibile per il leaderboard.")
+                st.stop()
+            # Converti gli anni in interi
+            anni_leader = [int(y) for y in anni_leader]
+            anno_leader = st.selectbox("Seleziona Anno", options=anni_leader, index=len(anni_leader)-1, key='leaderboard_anno')
+
+            # Filtra i dati per il leaderboard basato sull'anno selezionato
+            try:
+                start_date_leader = datetime(anno_leader, 1, 1)
+                end_date_leader = datetime(anno_leader, 12, 31)
+            except TypeError as e:
+                st.error(f"Errore nella selezione di Anno per il leaderboard: {e}")
+                st.stop()
+
+            df_leader_filtered = df[
+                (df['data_inizio_dt'] >= pd.Timestamp(start_date_leader)) &
+                (df['data_inizio_dt'] <= pd.Timestamp(end_date_leader))
+            ]
+
+            st.write(f"Anno in analisi: {anno_leader}")
+
+            leaderboard_df = calcola_leaderboard_mensile(df_leader_filtered, start_date_leader, end_date_leader)
             if leaderboard_df.empty:
                 st.info("Nessun progetto completato in questo periodo.")
             else:
@@ -870,15 +789,15 @@ elif scelta == "Dashboard":
 
                 fig_leader = px.bar(
                     leaderboard_df,
-                    x='Sales Recruiter',
-                    y='Punteggio Totale',
-                    color='Badge',
+                    x='sales_recruiter',
+                    y='punteggio',
+                    color='badge',
                     title='Leaderboard Annuale',
                     color_discrete_map={
                         "Gold": "gold",
                         "Silver": "silver",
                         "Bronze": "brown",
-                        "Grey": "grey"  # Colore di default per badge vuoti
+                        "": "grey"  # Colore di default per badge vuoti
                     }
                 )
                 st.plotly_chart(fig_leader, use_container_width=True)
@@ -886,89 +805,58 @@ elif scelta == "Dashboard":
                 st.markdown("""
                 **Formula Punteggio**  
                 - +10 punti ogni progetto completato  
-                - +50 punti per ogni progetto completato in meno di 60 giorni  
-                - +300 punti per ogni candidato che rimane in posizione per almeno 6 mesi  
-                - -200 punti per ogni candidato che lascia entro 3 mesi  
-                - +500 punti per ogni recensione a 5 stelle  
-                - +300 punti per ogni recensione a 4 stelle  
-                - +100 punti per ogni riunione a cui partecipa  
-                - +1000 punti per ogni nuovo cliente acquisito tramite referral  
-                - +300 punti per ogni corso completato  
+                - +bonus (300/500) da recensioni 4/5 stelle  
+                - +max(0, 30 - tempo_medio) per invertire la velocità  
                 """)
                 st.markdown("""
                 **Badge**  
-                - **Gold:** Punteggio >= 10000  
-                - **Silver:** Punteggio >= 5000  
-                - **Bronze:** Punteggio >= 2000  
-                - **Grey:** Altri punteggi  
+                - Bronze = almeno 5 completati  
+                - Silver = almeno 10  
+                - Gold   = almeno 20  
                 """)
 
             ################################
             # Grafici nella Classifica
             ################################
-            if not leaderboard_df.empty:
-                st.subheader("Grafici della Classifica")
+            st.subheader("Grafici della Classifica")
 
-                # **1) Leaderboard Totale**
-                st.markdown("**1) Leaderboard Totale**")
-                fig1 = px.bar(
-                    leaderboard_df,
-                    x='Sales Recruiter',
-                    y='Punteggio Totale',
-                    color='Badge',
-                    title='Punteggio Totale per Recruiter',
-                    color_discrete_map={
-                        "Gold": "gold",
-                        "Silver": "silver",
-                        "Bronze": "brown",
-                        "Grey": "grey"  # Colore di default per badge vuoti
-                    }
-                )
-                st.plotly_chart(fig1, use_container_width=True)
+            # **2) Recruiter più veloce (Tempo Medio)**
+            st.markdown("**2) Recruiter più veloce (Tempo Medio)**")
+            df_comp = df_leader_filtered[
+                (df_leader_filtered['stato_progetto'] == 'Completato') &
+                (df_leader_filtered['data_inizio_dt'] >= pd.Timestamp(start_date_leader)) &
+                (df_leader_filtered['data_inizio_dt'] <= pd.Timestamp(end_date_leader))
+            ].copy()
+            veloce = df_comp.groupby('sales_recruiter')['tempo_totale'].mean().reset_index()
+            veloce['tempo_totale'] = veloce['tempo_totale'].fillna(0)
+            veloce = veloce.sort_values(by='tempo_totale', ascending=True)
+            if veloce.empty:
+                st.info("Nessun progetto completato per calcolare la velocità.")
+            else:
+                fig2, ax2 = plt.subplots(figsize=(8,6))
+                ax2.bar(veloce['sales_recruiter'], veloce['tempo_totale'], color='#636EFA')  # Colore simile al grafico avvicinamento
+                ax2.set_title("Tempo Medio (giorni) - Più basso = più veloce")
+                ax2.set_xlabel("Recruiter")
+                ax2.set_ylabel("Tempo Medio (giorni)")
+                plt.xticks(rotation=45, ha='right')
+                st.pyplot(fig2)
 
-                # **2) Recruiter più veloce (Tempo Medio)**
-                st.markdown("**2) Recruiter più veloce (Tempo Medio)**")
-                df_comp_bonus = df_progetti[
-                    (df_progetti['stato_progetto'] == 'Completato') &
-                    (df_progetti['data_inizio_dt'] >= pd.Timestamp(start_date_bonus)) &
-                    (df_progetti['data_inizio_dt'] <= pd.Timestamp(end_date_bonus))
-                ].copy()
-                veloce = df_comp_bonus.groupby('sales_recruiter')['tempo_totale'].mean().reset_index()
-                veloce['tempo_totale'] = veloce['tempo_totale'].fillna(0)
-                veloce = veloce.sort_values(by='tempo_totale', ascending=True)
-                if veloce.empty:
-                    st.info("Nessun progetto completato per calcolare la velocità.")
-                else:
-                    fig2 = px.bar(
-                        veloce,
-                        x='tempo_totale',
-                        y='sales_recruiter',
-                        orientation='h',
-                        labels={'tempo_totale': 'Tempo Medio (giorni)', 'sales_recruiter': 'Recruiter'},
-                        title='Tempo Medio di Chiusura per Recruiter',
-                        color='tempo_totale',
-                        color_continuous_scale='Blues'
-                    )
-                    st.plotly_chart(fig2, use_container_width=True)
-
-                # **3) Recruiter con più Bonus ottenuti** (Recensioni)
-                st.markdown("**3) Recruiter con più Bonus ottenuti** (Recensioni)")
-                df_bonus = df_bonus_totale.copy()
-                df_bonus = df_bonus.sort_values(by='bonus', ascending=False)
-                if df_bonus.empty:
-                    st.info("Nessun bonus calcolato.")
-                else:
-                    fig3 = px.bar(
-                        df_bonus,
-                        x='bonus',
-                        y='sales_recruiter',
-                        orientation='h',
-                        labels={'bonus': 'Bonus Totale (€)', 'sales_recruiter': 'Recruiter'},
-                        title='Bonus Totale Ottenuto per Recruiter',
-                        color='bonus',
-                        color_continuous_scale='Oranges'
-                    )
-                    st.plotly_chart(fig3, use_container_width=True)
+            # **3) Recruiter con più Bonus ottenuti** (4 stelle=300, 5 stelle=500)
+            st.markdown("**3) Recruiter con più Bonus ottenuti** (4 stelle=300, 5 stelle=500)")
+            df_bonus = df_leader_filtered.copy()
+            df_bonus['bonus'] = df_bonus['recensione_stelle'].apply(calcola_bonus)
+            bonus_df = df_bonus.groupby('sales_recruiter')['bonus'].sum().reset_index()
+            bonus_df = bonus_df.sort_values(by='bonus', ascending=False)
+            if bonus_df.empty:
+                st.info("Nessun bonus calcolato.")
+            else:
+                fig3, ax3 = plt.subplots(figsize=(8,6))
+                ax3.bar(bonus_df['sales_recruiter'], bonus_df['bonus'], color='#EF553B')  # Colore simile al grafico avvicinamento
+                ax3.set_title("Bonus Totale Ottenuto")
+                ax3.set_xlabel("Recruiter")
+                ax3.set_ylabel("Bonus (€)")
+                plt.xticks(rotation=45, ha='right')
+                st.pyplot(fig3)
 
 #######################################
 # 3. GESTISCI OPZIONI
