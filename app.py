@@ -83,6 +83,9 @@ def carica_riunioni():
             # Verifica il nome corretto della colonna data_riunione
             c.execute("SELECT id, recruiter_id, data_riunione, partecipato FROM riunioni")
             riunioni = c.fetchall()
+    except pymysql.err.ProgrammingError as e:
+        st.error(f"Errore nella query delle riunioni: {e}")
+        riunioni = []
     finally:
         conn.close()
     return riunioni
@@ -203,6 +206,9 @@ def carica_dati_completo():
         df['data_inizio_dt'] = pd.to_datetime(df['data_inizio'], errors='coerce')
         df['recensione_data_dt'] = pd.to_datetime(df['recensione_data'], errors='coerce')
         
+    except pymysql.Error as e:
+        st.error(f"Errore nel caricamento dei dati completi: {e}")
+        df = pd.DataFrame()
     finally:
         conn.close()
 
@@ -267,6 +273,8 @@ def backup_database():
                     # Scrivi il CSV direttamente nell'archivio ZIP
                     backup_zip.writestr(f"{table_name}.csv", csv_data)
 
+        except pymysql.Error as e:
+            st.error(f"Errore durante il backup: {e}")
         finally:
             conn.close()
     
@@ -326,13 +334,14 @@ def restore_from_zip(zip_file):
                         conn.close()
                         return
 
-        conn.commit()
-        st.success("Ripristino completato con successo da ZIP.")
-    except pymysql.Error as e:
-        st.error(f"Errore nel ripristino del database: {e}")
-        conn.rollback()
-    finally:
-        conn.close()
+        except pymysql.Error as e:
+            st.error(f"Errore nel ripristino del database: {e}")
+            conn.rollback()
+        finally:
+            conn.commit()
+            conn.close()
+    
+    st.success("Ripristino completato con successo da ZIP.")
 
 #######################################
 # CAPACITA' PER RECRUITER
@@ -508,7 +517,7 @@ def calcola_leaderboard_mensile(df_progetti, df_candidati, df_riunioni, df_refer
             return "Silver"
         elif punteggio >= 2000:
             return "Bronze"
-        return ""
+        return "Grey"
 
     leaderboard['badge'] = leaderboard['punteggio'].apply(assegna_badge)
 
@@ -605,6 +614,9 @@ if scelta == "Inserisci Dati":
         data_inizio_str = st.text_input("Data di Inizio (GG/MM/AAAA)", 
                                         value="", 
                                         placeholder="Lascia vuoto se non disponibile")
+
+        # Tempo Previsto
+        tempo_previsto = st.number_input("Tempo Previsto (giorni)", min_value=0, step=1, value=0)
 
         # Pulsante di Submit
         submitted = st.form_submit_button("Inserisci Progetto")
@@ -866,7 +878,7 @@ elif scelta == "Dashboard":
                         "Gold": "gold",
                         "Silver": "silver",
                         "Bronze": "brown",
-                        "": "grey"  # Colore di default per badge vuoti
+                        "Grey": "grey"  # Colore di default per badge vuoti
                     }
                 )
                 st.plotly_chart(fig_leader, use_container_width=True)
@@ -878,7 +890,7 @@ elif scelta == "Dashboard":
                 - +300 punti per ogni candidato che rimane in posizione per almeno 6 mesi  
                 - -200 punti per ogni candidato che lascia entro 3 mesi  
                 - +500 punti per ogni recensione a 5 stelle  
-                - +400 punti per ogni recensione a 4 stelle  
+                - +300 punti per ogni recensione a 4 stelle  
                 - +100 punti per ogni riunione a cui partecipa  
                 - +1000 punti per ogni nuovo cliente acquisito tramite referral  
                 - +300 punti per ogni corso completato  
@@ -909,7 +921,7 @@ elif scelta == "Dashboard":
                         "Gold": "gold",
                         "Silver": "silver",
                         "Bronze": "brown",
-                        "": "grey"  # Colore di default per badge vuoti
+                        "Grey": "grey"  # Colore di default per badge vuoti
                     }
                 )
                 st.plotly_chart(fig1, use_container_width=True)
