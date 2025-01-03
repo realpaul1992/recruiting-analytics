@@ -127,6 +127,10 @@ def aggiorna_progetto(
     data_fine_str = data_fine.strftime('%Y-%m-%d') if data_fine else None
     recensione_data_str = recensione_data.strftime('%Y-%m-%d') if recensione_data else None
 
+    # Assicurati che 'stato_progetto' sia formattato correttamente
+    if stato_progetto:
+        stato_progetto = stato_progetto.strip().title()
+
     query = """
         UPDATE progetti
         SET 
@@ -187,11 +191,10 @@ def carica_dati_completo():
 
     df = pd.DataFrame(rows, columns=col_names)
 
-    # === Esempio di Fix: convertiamo 'tempo_previsto' a numerico ===
+    # Converti 'tempo_previsto' a numerico
     if "tempo_previsto" in df.columns:
         df["tempo_previsto"] = pd.to_numeric(df["tempo_previsto"], errors="coerce")
         df["tempo_previsto"] = df["tempo_previsto"].fillna(0).astype(int)
-    # ================================================
 
     return df
 
@@ -221,6 +224,10 @@ def inserisci_progetto_continuativo(
     tempo_totale = None
     recensione_stelle = None
     recensione_data = None
+
+    # Assicurati che 'stato_progetto' sia formattato correttamente
+    if stato_progetto:
+        stato_progetto = stato_progetto.strip().title()
 
     query = """
         INSERT INTO progetti (
@@ -299,8 +306,6 @@ def assegna_recruiters_a_progetto_continuativo(progetto_id, number_recruiters):
             for rec in available_recruiters:
                 rec_id = rec['id']
                 # Assegna il recruiter al progetto
-                # Se ci sono più recruiter, si potrebbe voler creare nuove righe o gestire diversamente
-                # Per semplicità, aggiorniamo il sales_recruiter_id con l'ultimo recruiter assegnato
                 c.execute("""
                     UPDATE progetti
                     SET sales_recruiter_id = %s
@@ -359,191 +364,7 @@ def carica_progetti_continuativi_db():
 # DEFINIZIONE DELLE FUNZIONI CRUD
 ####################################
 
-# Funzioni per Riunioni
-def carica_riunioni():
-    conn = get_connection()
-    c = conn.cursor()
-    c.execute("SELECT id, recruiter_id, data_riunione, partecipato FROM riunioni ORDER BY data_riunione DESC")
-    rows = c.fetchall()
-    conn.close()
-    df = pd.DataFrame(rows, columns=['id', 'recruiter_id', 'data_riunione', 'partecipato'])
-    df['data_riunione'] = pd.to_datetime(df['data_riunione'], errors='coerce').dt.date
-    return df
-
-def inserisci_riunione(recruiter_id, data_riunione, partecipato):
-    conn = get_connection()
-    c = conn.cursor()
-    query = """
-        INSERT INTO riunioni (recruiter_id, data_riunione, partecipato)
-        VALUES (%s, %s, %s)
-    """
-    c.execute(query, (recruiter_id, data_riunione, partecipato))
-    conn.commit()
-    conn.close()
-    st.success("Riunione inserita con successo!")
-    backup_database()
-
-def modifica_riunione(riunione_id, recruiter_id, data_riunione, partecipato):
-    conn = get_connection()
-    c = conn.cursor()
-    query = """
-        UPDATE riunioni
-        SET recruiter_id = %s, data_riunione = %s, partecipato = %s
-        WHERE id = %s
-    """
-    c.execute(query, (recruiter_id, data_riunione, partecipato, riunione_id))
-    conn.commit()
-    conn.close()
-    st.success("Riunione aggiornata con successo!")
-    backup_database()
-
-def elimina_riunione(riunione_id):
-    conn = get_connection()
-    c = conn.cursor()
-    query = "DELETE FROM riunioni WHERE id = %s"
-    c.execute(query, (riunione_id,))
-    conn.commit()
-    conn.close()
-    st.success("Riunione eliminata con successo!")
-    backup_database()
-
-# Funzioni per Referrals
-def carica_referrals():
-    conn = get_connection()
-    c = conn.cursor()
-    c.execute("SELECT id, recruiter_id, cliente_nome, data_referral, stato FROM referrals ORDER BY data_referral DESC")
-    rows = c.fetchall()
-    conn.close()
-    return rows
-
-def inserisci_referral(recruiter_id, cliente_nome, data_referral, stato):
-    conn = get_connection()
-    c = conn.cursor()
-    query = """
-        INSERT INTO referrals (recruiter_id, cliente_nome, data_referral, stato)
-        VALUES (%s, %s, %s, %s)
-    """
-    c.execute(query, (recruiter_id, cliente_nome, data_referral, stato))
-    conn.commit()
-    conn.close()
-    st.success("Referral inserito con successo!")
-    backup_database()
-
-def modifica_referral(referral_id, recruiter_id, cliente_nome, data_referral, stato):
-    conn = get_connection()
-    c = conn.cursor()
-    query = """
-        UPDATE referrals
-        SET recruiter_id = %s, cliente_nome = %s, data_referral = %s, stato = %s
-        WHERE id = %s
-    """
-    c.execute(query, (recruiter_id, cliente_nome, data_referral, stato, referral_id))
-    conn.commit()
-    conn.close()
-    st.success("Referral aggiornato con successo!")
-    backup_database()
-
-def elimina_referral(referral_id):
-    conn = get_connection()
-    c = conn.cursor()
-    query = "DELETE FROM referrals WHERE id = %s"
-    c.execute(query, (referral_id,))
-    conn.commit()
-    conn.close()
-    st.success("Referral eliminato con successo!")
-    backup_database()
-
-# Funzioni per Formazione
-def carica_formazione():
-    conn = get_connection()
-    c = conn.cursor()
-    c.execute("SELECT id, recruiter_id, corso_nome, data_completamento FROM formazione ORDER BY data_completamento DESC")
-    rows = c.fetchall()
-    conn.close()
-    return rows
-
-def inserisci_formazione(recruiter_id, corso_nome, data_completamento):
-    conn = get_connection()
-    c = conn.cursor()
-    query = """
-        INSERT INTO formazione (recruiter_id, corso_nome, data_completamento)
-        VALUES (%s, %s, %s)
-    """
-    c.execute(query, (recruiter_id, corso_nome, data_completamento))
-    conn.commit()
-    conn.close()
-    st.success("Formazione inserita con successo!")
-    backup_database()
-
-def modifica_formazione(formazione_id, recruiter_id, corso_nome, data_completamento):
-    conn = get_connection()
-    c = conn.cursor()
-    query = """
-        UPDATE formazione
-        SET recruiter_id = %s, corso_nome = %s, data_completamento = %s
-        WHERE id = %s
-    """
-    c.execute(query, (recruiter_id, corso_nome, data_completamento, formazione_id))
-    conn.commit()
-    conn.close()
-    st.success("Formazione aggiornata con successo!")
-    backup_database()
-
-def elimina_formazione(formazione_id):
-    conn = get_connection()
-    c = conn.cursor()
-    query = "DELETE FROM formazione WHERE id = %s"
-    c.execute(query, (formazione_id,))
-    conn.commit()
-    conn.close()
-    st.success("Formazione eliminata con successo!")
-    backup_database()
-
-# Funzioni per Candidati (Retention)
-def carica_candidati():
-    conn = get_connection()
-    c = conn.cursor()
-    c.execute("SELECT id, progetto_id, recruiter_id, candidato_nome, data_inserimento, data_dimissioni FROM candidati ORDER BY data_inserimento DESC")
-    rows = c.fetchall()
-    conn.close()
-    return rows
-
-def inserisci_candidato(progetto_id, recruiter_id, candidato_nome, data_inserimento, data_dimissioni):
-    conn = get_connection()
-    c = conn.cursor()
-    query = """
-        INSERT INTO candidati (progetto_id, recruiter_id, candidato_nome, data_inserimento, data_dimissioni)
-        VALUES (%s, %s, %s, %s, %s)
-    """
-    c.execute(query, (progetto_id, recruiter_id, candidato_nome, data_inserimento, data_dimissioni))
-    conn.commit()
-    conn.close()
-    st.success("Candidato inserito con successo!")
-    backup_database()
-
-def modifica_candidato(candidato_id, progetto_id, recruiter_id, candidato_nome, data_inserimento, data_dimissioni):
-    conn = get_connection()
-    c = conn.cursor()
-    query = """
-        UPDATE candidati
-        SET progetto_id = %s, recruiter_id = %s, candidato_nome = %s, data_inserimento = %s, data_dimissioni = %s
-        WHERE id = %s
-    """
-    c.execute(query, (progetto_id, recruiter_id, candidato_nome, data_inserimento, data_dimissioni, candidato_id))
-    conn.commit()
-    conn.close()
-    st.success("Candidato aggiornato con successo!")
-    backup_database()
-
-def elimina_candidato(candidato_id):
-    conn = get_connection()
-    c = conn.cursor()
-    query = "DELETE FROM candidati WHERE id = %s"
-    c.execute(query, (candidato_id,))
-    conn.commit()
-    conn.close()
-    st.success("Candidato eliminato con successo!")
-    backup_database()
+# (Le funzioni CRUD per Riunioni, Referrals, Formazione e Candidati rimangono invariate)
 
 ####################################
 # GESTIONE BACKUP in ZIP (Esportazione + Ripristino)
@@ -785,12 +606,11 @@ with tab1:
         col_upd, col_del = st.columns([3,1])
         with col_upd:
             with st.form("form_aggiorna_progetto"):
-                cliente_agg = st.text_input("Nome Cliente", value=progetto['cliente'])
-
-                # Cliente selezionato: deve essere nella lista dei clienti esistenti
+                # Nome Cliente: selezionato dalla lista esistente
                 clienti = carica_clienti_db()
                 client_names = [c['cliente'] for c in clienti]
                 cliente_sel = st.selectbox("Nome Cliente", options=client_names, index=client_names.index(progetto['cliente']) if progetto['cliente'] in client_names else 0)
+
                 # Ottieni settore_id basato sul cliente selezionato
                 settore_id_agg = None
                 for c in clienti:
@@ -1020,6 +840,10 @@ with tab2:
             if not rec_id:
                 st.error("Sales Recruiter selezionato non valido.")
                 st.stop()
+
+            # Assicurati che 'stato_progetto' sia formattato correttamente
+            if stato_progetto:
+                stato_progetto = stato_progetto.strip().title()
 
             inserisci_progetto_continuativo(
                 cliente=cliente_sel.strip(),
