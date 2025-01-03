@@ -525,6 +525,10 @@ def calcola_leaderboard(df, start_date, end_date):
     # Calcolo Bonus per Referral
     referrals_data = carica_referrals()
     referrals_df = pd.DataFrame(referrals_data)
+    # Verifica se 'recruiters_df' contiene la colonna 'id' e 'nome'
+    if 'id' not in recruiters_df.columns or 'nome' not in recruiters_df.columns:
+        st.error("La tabella 'recruiters' non contiene le colonne 'id' e/o 'nome'. Verifica la struttura del database.")
+        return pd.DataFrame()  # Ritorna un DataFrame vuoto per evitare ulteriori errori
     referrals_df = referrals_df.merge(recruiters_df, left_on='recruiter_id', right_on='id', how='left')
     referrals_df['bonus_referral'] = referrals_df['stato'].apply(lambda x: 1000 if str(x).lower() == 'acquisito' else 0)
     bonus_referral = referrals_df.groupby('nome')['bonus_referral'].sum().reset_index()
@@ -1148,10 +1152,17 @@ elif scelta == "Gestione":
                             recruiter_id_new = r['id']
                             break
                     
-                    # Converti 'data_riunione' in oggetto date
-                    try:
-                        data_riunione_date = datetime.strptime(data_riunione, '%Y-%m-%d').date()
-                    except ValueError:
+                    # Converti 'data_riunione' in oggetto date se necessario
+                    if isinstance(data_riunione, str):
+                        try:
+                            data_riunione_date = datetime.strptime(data_riunione, '%Y-%m-%d').date()
+                        except ValueError:
+                            data_riunione_date = datetime.today().date()
+                    elif isinstance(data_riunione, datetime):
+                        data_riunione_date = data_riunione.date()
+                    elif isinstance(data_riunione, datetime.date):
+                        data_riunione_date = data_riunione
+                    else:
                         data_riunione_date = datetime.today().date()
 
                     data_riunione_new = st.date_input(
@@ -1240,9 +1251,18 @@ elif scelta == "Gestione":
                             break
                     
                     cliente_nome_new = st.text_input("Nome Cliente", value=cliente_nome, key=f"cliente_ref_{ref_id}")
-                    try:
-                        data_referral_date = datetime.strptime(data_referral, '%Y-%m-%d').date()
-                    except ValueError:
+                    
+                    # Gestione sicura delle date
+                    if isinstance(data_referral, str):
+                        try:
+                            data_referral_date = datetime.strptime(data_referral, '%Y-%m-%d').date()
+                        except ValueError:
+                            data_referral_date = datetime.today().date()
+                    elif isinstance(data_referral, datetime):
+                        data_referral_date = data_referral.date()
+                    elif isinstance(data_referral, datetime.date):
+                        data_referral_date = data_referral
+                    else:
                         data_referral_date = datetime.today().date()
 
                     data_referral_new = st.date_input(
@@ -1333,9 +1353,18 @@ elif scelta == "Gestione":
                             break
                     
                     corso_nome_new = st.text_input("Nome Corso", value=corso_nome, key=f"corso_formazione_{form_id}")
-                    try:
-                        data_completamento_date = datetime.strptime(data_completamento, '%Y-%m-%d').date()
-                    except ValueError:
+                    
+                    # Gestione sicura delle date
+                    if isinstance(data_completamento, str):
+                        try:
+                            data_completamento_date = datetime.strptime(data_completamento, '%Y-%m-%d').date()
+                        except ValueError:
+                            data_completamento_date = datetime.today().date()
+                    elif isinstance(data_completamento, datetime):
+                        data_completamento_date = data_completamento.date()
+                    elif isinstance(data_completamento, datetime.date):
+                        data_completamento_date = data_completamento
+                    else:
                         data_completamento_date = datetime.today().date()
 
                     data_completamento_new = st.date_input(
@@ -1441,7 +1470,7 @@ elif scelta == "Gestione":
                     recruiter_sel = st.selectbox(
                         "Recruiter", 
                         recruiter_nomi, 
-                        index=recruiter_nomi.index(next(r['nome'] for r in recruiters if r['id'] == recruiter_id)),
+                        index=recruiter_nomi.index(next((r['nome'] for r in recruiters if r['id'] == recruiter_id), 'Recruiter Non Trovato')) if any(r['nome'] == next((r['nome'] for r in recruiters if r['id'] == recruiter_id), 'Recruiter Non Trovato') for r in recruiters) else 0,
                         key=f"recruiter_candidato_{cand_id}"
                     )
                     recruiter_id_new = None
@@ -1453,9 +1482,16 @@ elif scelta == "Gestione":
                     candidato_nome_new = st.text_input("Nome Candidato", value=candidato_nome, key=f"candidato_nome_{cand_id}")
                     
                     # Gestione sicura delle date
-                    try:
-                        data_inserimento_date = datetime.strptime(data_inserimento, '%Y-%m-%d').date()
-                    except ValueError:
+                    if isinstance(data_inserimento, str):
+                        try:
+                            data_inserimento_date = datetime.strptime(data_inserimento, '%Y-%m-%d').date()
+                        except ValueError:
+                            data_inserimento_date = datetime.today().date()
+                    elif isinstance(data_inserimento, datetime):
+                        data_inserimento_date = data_inserimento.date()
+                    elif isinstance(data_inserimento, datetime.date):
+                        data_inserimento_date = data_inserimento
+                    else:
                         data_inserimento_date = datetime.today().date()
 
                     data_inserimento_new = st.date_input(
@@ -1465,9 +1501,16 @@ elif scelta == "Gestione":
                     )
                     
                     if data_dimissioni:
-                        try:
-                            data_dimissioni_date = datetime.strptime(data_dimissioni, '%Y-%m-%d').date()
-                        except ValueError:
+                        if isinstance(data_dimissioni, str):
+                            try:
+                                data_dimissioni_date = datetime.strptime(data_dimissioni, '%Y-%m-%d').date()
+                            except ValueError:
+                                data_dimissioni_date = datetime.today().date()
+                        elif isinstance(data_dimissioni, datetime):
+                            data_dimissioni_date = data_dimissioni.date()
+                        elif isinstance(data_dimissioni, datetime.date):
+                            data_dimissioni_date = data_dimissioni
+                        else:
                             data_dimissioni_date = datetime.today().date()
                     else:
                         data_dimissioni_date = None
