@@ -200,7 +200,7 @@ def carica_capacity_recruiter():
     try:
         with conn.cursor() as c:
             c.execute('''
-                SELECT r.id, r.nome,
+                SELECT r.id, r.nome AS sales_recruiter,
                        IFNULL(rc.capacity_max, 5) AS capacity_max
                 FROM recruiters r
                 LEFT JOIN recruiter_capacity rc ON r.id = rc.recruiter_id
@@ -390,7 +390,7 @@ with tab4:
         st.info("Nessun recruiter presente nel DB.")
     else:
         for rec in rows:
-            rec_id, rec_nome, cap_max = rec['id'], rec['nome'], rec['capacity_max']
+            rec_id, rec_nome, cap_max = rec['id'], rec['sales_recruiter'], rec['capacity']
             with st.expander(f"Recruiter: {rec_nome} (ID: {rec_id}) - Capacità attuale: {cap_max}"):
                 with st.form(f"form_capacita_{rec_id}"):
                     nuova_capacity = st.number_input(f"Nuova capacità per {rec_nome}",
