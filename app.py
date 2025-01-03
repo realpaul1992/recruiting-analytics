@@ -1,5 +1,3 @@
-# app.py
-
 import streamlit as st
 import pandas as pd
 import pymysql
@@ -9,6 +7,7 @@ import matplotlib.pyplot as plt
 import os
 import zipfile  # Import per gestire ZIP
 from io import BytesIO
+import urllib.parse
 
 #######################################
 # FUNZIONI DI ACCESSO AL DB (MySQL)
@@ -17,410 +16,325 @@ from io import BytesIO
 def get_connection():
     """
     Ritorna una connessione MySQL usando pymysql.
-    Utilizza le variabili d'ambiente definite in Streamlit Secrets.
     """
-    try:
-        connection = pymysql.connect(
-            host=st.secrets["DB_HOST"],
-            port=int(st.secrets["DB_PORT"]),
-            user=st.secrets["DB_USER"],
-            password=st.secrets["DB_PASSWORD"],
-            database=st.secrets["DB_NAME"],
-            cursorclass=pymysql.cursors.DictCursor  # Per avere dizionari anziché tuple
-        )
-        return connection
-    except pymysql.err.OperationalError as e:
-        st.error("Impossibile connettersi al database. Controlla le credenziali e l'accessibilità del database.")
-        st.stop()
-    except Exception as e:
-        st.error(f"Errore inaspettato: {e}")
-        st.stop()
+    return pymysql.connect(
+        host="junction.proxy.rlwy.net",
+        port=14718,
+        user="root",
+        password="GoHrUNytXgoikyAkbwYQpYLnfuQVQdBM",
+        database="railway",
+        cursorclass=pymysql.cursors.DictCursor  # Per ottenere risultati come dizionari
+    )
 
-# Funzioni per Settori
 def carica_settori():
     conn = get_connection()
-    try:
-        with conn.cursor() as c:
-            c.execute("SELECT id, nome FROM settori ORDER BY nome ASC")
-            settori = c.fetchall()
-    finally:
-        conn.close()
-    return settori
+    c = conn.cursor()
+    c.execute("SELECT id, nome FROM settori ORDER BY nome ASC")
+    rows = c.fetchall()
+    conn.close()
+    return rows
 
-def inserisci_settore(nome):
-    conn = get_connection()
-    try:
-        with conn.cursor() as c:
-            c.execute("INSERT INTO settori (nome) VALUES (%s)", (nome.strip(),))
-        conn.commit()
-        st.success(f"Settore '{nome}' inserito con successo!")
-    except pymysql.IntegrityError:
-        st.error(f"Settore '{nome}' già esistente.")
-    except Exception as e:
-        st.error(f"Errore nell'inserimento del settore: {e}")
-    finally:
-        conn.close()
-
-def modifica_settore(settore_id, nuovo_nome):
-    conn = get_connection()
-    try:
-        with conn.cursor() as c:
-            c.execute("UPDATE settori SET nome = %s WHERE id = %s", (nuovo_nome.strip(), settore_id))
-        conn.commit()
-        st.success(f"Settore aggiornato a '{nuovo_nome}'!")
-    except pymysql.IntegrityError:
-        st.error(f"Settore '{nuovo_nome}' già esistente.")
-    except Exception as e:
-        st.error(f"Errore nell'aggiornamento del settore: {e}")
-    finally:
-        conn.close()
-
-def elimina_settore(settore_id):
-    conn = get_connection()
-    try:
-        with conn.cursor() as c:
-            c.execute("DELETE FROM settori WHERE id = %s", (settore_id,))
-        conn.commit()
-        st.success("Settore eliminato con successo!")
-    except pymysql.IntegrityError as e:
-        st.error(f"Errore nell'eliminazione del settore: {e}")
-    except Exception as e:
-        st.error(f"Errore nell'eliminazione del settore: {e}")
-    finally:
-        conn.close()
-
-# Funzioni per Project Managers
 def carica_project_managers():
     conn = get_connection()
-    try:
-        with conn.cursor() as c:
-            c.execute("SELECT id, nome FROM project_managers ORDER BY nome ASC")
-            project_managers = c.fetchall()
-    finally:
-        conn.close()
-    return project_managers
+    c = conn.cursor()
+    c.execute("SELECT id, nome FROM project_managers ORDER BY nome ASC")
+    rows = c.fetchall()
+    conn.close()
+    return rows
 
-def inserisci_pm(nome):
-    conn = get_connection()
-    try:
-        with conn.cursor() as c:
-            c.execute("INSERT INTO project_managers (nome) VALUES (%s)", (nome.strip(),))
-        conn.commit()
-        st.success(f"Project Manager '{nome}' inserito con successo!")
-    except pymysql.IntegrityError:
-        st.error(f"Project Manager '{nome}' già esistente.")
-    except Exception as e:
-        st.error(f"Errore nell'inserimento del Project Manager: {e}")
-    finally:
-        conn.close()
-
-def modifica_pm(pm_id, nuovo_nome):
-    conn = get_connection()
-    try:
-        with conn.cursor() as c:
-            c.execute("UPDATE project_managers SET nome = %s WHERE id = %s", (nuovo_nome.strip(), pm_id))
-        conn.commit()
-        st.success(f"Project Manager aggiornato a '{nuovo_nome}'!")
-    except pymysql.IntegrityError:
-        st.error(f"Project Manager '{nuovo_nome}' già esistente.")
-    except Exception as e:
-        st.error(f"Errore nell'aggiornamento del Project Manager: {e}")
-    finally:
-        conn.close()
-
-def elimina_pm(pm_id):
-    conn = get_connection()
-    try:
-        with conn.cursor() as c:
-            c.execute("DELETE FROM project_managers WHERE id = %s", (pm_id,))
-        conn.commit()
-        st.success("Project Manager eliminato con successo!")
-    except pymysql.IntegrityError as e:
-        st.error(f"Errore nell'eliminazione del PM: {e}")
-    except Exception as e:
-        st.error(f"Errore nell'eliminazione del PM: {e}")
-    finally:
-        conn.close()
-
-# Funzioni per Recruiters
 def carica_recruiters():
     conn = get_connection()
-    try:
-        with conn.cursor() as c:
-            c.execute("SELECT id, nome FROM recruiters ORDER BY nome ASC")
-            recruiters = c.fetchall()
-    finally:
-        conn.close()
-    return recruiters
+    c = conn.cursor()
+    c.execute("SELECT id, nome FROM recruiters ORDER BY nome ASC")
+    rows = c.fetchall()
+    conn.close()
+    return rows
 
-def inserisci_recruiter(nome):
-    conn = get_connection()
-    try:
-        with conn.cursor() as c:
-            c.execute("INSERT INTO recruiters (nome) VALUES (%s)", (nome.strip(),))
-        conn.commit()
-        st.success(f"Recruiter '{nome}' inserito con successo!")
-    except pymysql.IntegrityError:
-        st.error(f"Recruiter '{nome}' già esistente.")
-    except Exception as e:
-        st.error(f"Errore nell'inserimento del Recruiter: {e}")
-    finally:
-        conn.close()
-
-def modifica_recruiter(rec_id, nuovo_nome):
-    conn = get_connection()
-    try:
-        with conn.cursor() as c:
-            c.execute("UPDATE recruiters SET nome = %s WHERE id = %s", (nuovo_nome.strip(), rec_id))
-        conn.commit()
-        st.success(f"Recruiter aggiornato a '{nuovo_nome}'!")
-    except pymysql.IntegrityError:
-        st.error(f"Recruiter '{nuovo_nome}' già esistente.")
-    except Exception as e:
-        st.error(f"Errore nell'aggiornamento del Recruiter: {e}")
-    finally:
-        conn.close()
-
-def elimina_recruiter(rec_id):
-    conn = get_connection()
-    try:
-        with conn.cursor() as c:
-            c.execute("DELETE FROM recruiters WHERE id = %s", (rec_id,))
-        conn.commit()
-        st.success("Recruiter eliminato con successo!")
-    except pymysql.IntegrityError as e:
-        st.error(f"Errore nell'eliminazione del Recruiter: {e}")
-    except Exception as e:
-        st.error(f"Errore nell'eliminazione del Recruiter: {e}")
-    finally:
-        conn.close()
-
-# Funzioni per Capacità Recruiter
-def carica_capacity_recruiter():
+def inserisci_dati(cliente, settore_id, pm_id, rec_id, data_inizio):
     """
-    Restituisce un DataFrame con recruiter e la loro capacità.
+    Inserisce un nuovo progetto in MySQL.
     """
     conn = get_connection()
-    try:
-        with conn.cursor() as c:
-            c.execute('''
-                SELECT r.id, r.nome AS sales_recruiter,
-                       IFNULL(rc.capacity_max, 5) AS capacity_max
-                FROM recruiters r
-                LEFT JOIN recruiter_capacity rc ON r.id = rc.recruiter_id
-                ORDER BY r.nome
-            ''')
-            rows = c.fetchall()
-    finally:
-        conn.close()
-    return pd.DataFrame(rows, columns=['id', 'sales_recruiter', 'capacity_max'])
+    c = conn.cursor()
 
-def aggiorna_capacity_recruiter(recruiter_id, nuova_capacity):
+    # Valori di default
+    stato_progetto = None
+    data_fine = None
+    tempo_totale = None
+    recensione_stelle = None
+    recensione_data = None
+    tempo_previsto = None  # gestito altrove
+
+    query = """
+        INSERT INTO progetti (
+            cliente,
+            settore_id,
+            project_manager_id,
+            sales_recruiter_id,
+            stato_progetto,
+            data_inizio,
+            data_fine,
+            tempo_totale,
+            recensione_stelle,
+            recensione_data,
+            tempo_previsto
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    """
+    c.execute(query, (
+        cliente,
+        settore_id,
+        pm_id,
+        rec_id,
+        stato_progetto,
+        data_inizio,
+        data_fine,
+        tempo_totale,
+        recensione_stelle,
+        recensione_data,
+        tempo_previsto
+    ))
+    conn.commit()
+    conn.close()
+
+    # Esegui backup (ZIP)
+    backup_database()
+
+def carica_dati_completo():
+    """
+    Carica i progetti uniti a settori, pm, recruiters, includendo 'tempo_previsto'.
+    """
     conn = get_connection()
-    try:
-        with conn.cursor() as c:
-            c.execute("UPDATE recruiter_capacity SET capacity_max = %s WHERE recruiter_id = %s", (nuova_capacity, recruiter_id))
-            if c.rowcount == 0:
-                c.execute("INSERT INTO recruiter_capacity (recruiter_id, capacity_max) VALUES (%s, %s)", (recruiter_id, nuova_capacity))
-        conn.commit()
-        st.success(f"Capacità per Recruiter ID {recruiter_id} aggiornata a {nuova_capacity}.")
-    except Exception as e:
-        st.error(f"Errore nell'aggiornamento della capacità: {e}")
-    finally:
-        conn.close()
+    c = conn.cursor()
+    query = """
+        SELECT
+            p.id,
+            p.cliente,
+            s.nome AS settore,
+            pm.nome AS project_manager,
+            r.nome AS sales_recruiter,
+            p.stato_progetto,
+            p.data_inizio,
+            p.data_fine,
+            p.tempo_totale,
+            p.recensione_stelle,
+            p.recensione_data,
+            p.tempo_previsto
+        FROM progetti p
+        JOIN settori s ON p.settore_id = s.id
+        JOIN project_managers pm ON p.project_manager_id = pm.id
+        JOIN recruiters r ON p.sales_recruiter_id = r.id
+    """
+    c.execute(query)
+    rows = c.fetchall()
+
+    columns = [
+        'id','cliente','settore','project_manager','sales_recruiter',
+        'stato_progetto','data_inizio','data_fine','tempo_totale',
+        'recensione_stelle','recensione_data','tempo_previsto'
+    ]
+    conn.close()
+
+    df = pd.DataFrame(rows, columns=columns)
+    
+    # Convertiamo 'tempo_previsto' a numerico
+    if "tempo_previsto" in df.columns:
+        df["tempo_previsto"] = pd.to_numeric(df["tempo_previsto"], errors="coerce")
+        df["tempo_previsto"] = df["tempo_previsto"].fillna(0).astype(int)
+    
+    # Aggiungi 'data_inizio_dt' e 'recensione_data_dt' subito dopo
+    df['data_inizio_dt'] = pd.to_datetime(df['data_inizio'], errors='coerce')
+    df['recensione_data_dt'] = pd.to_datetime(df['recensione_data'], errors='coerce')
+    
+    return df
+
+#######################################
+# DEFINIZIONE DELLE FUNZIONI CRUD
+#######################################
 
 # Funzioni per Riunioni
 def carica_riunioni():
     conn = get_connection()
-    try:
-        with conn.cursor() as c:
-            c.execute("SELECT id, recruiter_id, data_riunione, partecipato FROM riunioni ORDER BY data_riunione DESC")
-            riunioni = c.fetchall()
-    except pymysql.err.ProgrammingError as e:
-        st.error(f"Errore nella query delle riunioni: {e}")
-        riunioni = []
-    finally:
-        conn.close()
-    return riunioni
+    c = conn.cursor()
+    c.execute("SELECT id, recruiter_id, data_riunione, partecipato FROM riunioni ORDER BY data_riunione DESC")
+    rows = c.fetchall()
+    conn.close()
+    return rows
 
 def inserisci_riunione(recruiter_id, data_riunione, partecipato):
     conn = get_connection()
-    try:
-        with conn.cursor() as c:
-            c.execute("""
-                INSERT INTO riunioni (recruiter_id, data_riunione, partecipato)
-                VALUES (%s, %s, %s)
-            """, (recruiter_id, data_riunione, partecipato))
-        conn.commit()
-        st.success("Riunione inserita con successo!")
-    except Exception as e:
-        st.error(f"Errore nell'inserimento della riunione: {e}")
-    finally:
-        conn.close()
+    c = conn.cursor()
+    query = """
+        INSERT INTO riunioni (recruiter_id, data_riunione, partecipato)
+        VALUES (%s, %s, %s)
+    """
+    c.execute(query, (recruiter_id, data_riunione, partecipato))
+    conn.commit()
+    conn.close()
+    st.success("Riunione inserita con successo!")
+    backup_database()
 
 def modifica_riunione(riunione_id, recruiter_id, data_riunione, partecipato):
     conn = get_connection()
-    try:
-        with conn.cursor() as c:
-            c.execute("""
-                UPDATE riunioni
-                SET recruiter_id = %s, data_riunione = %s, partecipato = %s
-                WHERE id = %s
-            """, (recruiter_id, data_riunione, partecipato, riunione_id))
-        conn.commit()
-        st.success("Riunione aggiornata con successo!")
-    except Exception as e:
-        st.error(f"Errore nell'aggiornamento della riunione: {e}")
-    finally:
-        conn.close()
+    c = conn.cursor()
+    query = """
+        UPDATE riunioni
+        SET recruiter_id = %s, data_riunione = %s, partecipato = %s
+        WHERE id = %s
+    """
+    c.execute(query, (recruiter_id, data_riunione, partecipato, riunione_id))
+    conn.commit()
+    conn.close()
+    st.success("Riunione aggiornata con successo!")
+    backup_database()
 
 def elimina_riunione(riunione_id):
     conn = get_connection()
-    try:
-        with conn.cursor() as c:
-            c.execute("DELETE FROM riunioni WHERE id = %s", (riunione_id,))
-        conn.commit()
-        st.success("Riunione eliminata con successo!")
-    except Exception as e:
-        st.error(f"Errore nell'eliminazione della riunione: {e}")
-    finally:
-        conn.close()
+    c = conn.cursor()
+    query = "DELETE FROM riunioni WHERE id = %s"
+    c.execute(query, (riunione_id,))
+    conn.commit()
+    conn.close()
+    st.success("Riunione eliminata con successo!")
+    backup_database()
 
 # Funzioni per Referrals
 def carica_referrals():
     conn = get_connection()
-    try:
-        with conn.cursor() as c:
-            c.execute("SELECT id, recruiter_id, cliente_nome, data_referral, stato FROM referrals ORDER BY data_referral DESC")
-            referrals = c.fetchall()
-    finally:
-        conn.close()
-    return referrals
+    c = conn.cursor()
+    c.execute("SELECT id, recruiter_id, cliente_nome, data_referral, stato FROM referrals ORDER BY data_referral DESC")
+    rows = c.fetchall()
+    conn.close()
+    return rows
 
 def inserisci_referral(recruiter_id, cliente_nome, data_referral, stato):
     conn = get_connection()
-    try:
-        with conn.cursor() as c:
-            c.execute("""
-                INSERT INTO referrals (recruiter_id, cliente_nome, data_referral, stato)
-                VALUES (%s, %s, %s, %s)
-            """, (recruiter_id, cliente_nome.strip(), data_referral, stato))
-        conn.commit()
-        st.success("Referral inserito con successo!")
-    except Exception as e:
-        st.error(f"Errore nell'inserimento del referral: {e}")
-    finally:
-        conn.close()
+    c = conn.cursor()
+    query = """
+        INSERT INTO referrals (recruiter_id, cliente_nome, data_referral, stato)
+        VALUES (%s, %s, %s, %s)
+    """
+    c.execute(query, (recruiter_id, cliente_nome, data_referral, stato))
+    conn.commit()
+    conn.close()
+    st.success("Referral inserito con successo!")
+    backup_database()
 
 def modifica_referral(referral_id, recruiter_id, cliente_nome, data_referral, stato):
     conn = get_connection()
-    try:
-        with conn.cursor() as c:
-            c.execute("""
-                UPDATE referrals
-                SET recruiter_id = %s, cliente_nome = %s, data_referral = %s, stato = %s
-                WHERE id = %s
-            """, (recruiter_id, cliente_nome.strip(), data_referral, stato, referral_id))
-        conn.commit()
-        st.success("Referral aggiornato con successo!")
-    except Exception as e:
-        st.error(f"Errore nell'aggiornamento del referral: {e}")
-    finally:
-        conn.close()
+    c = conn.cursor()
+    query = """
+        UPDATE referrals
+        SET recruiter_id = %s, cliente_nome = %s, data_referral = %s, stato = %s
+        WHERE id = %s
+    """
+    c.execute(query, (recruiter_id, cliente_nome, data_referral, stato, referral_id))
+    conn.commit()
+    conn.close()
+    st.success("Referral aggiornato con successo!")
+    backup_database()
 
 def elimina_referral(referral_id):
     conn = get_connection()
-    try:
-        with conn.cursor() as c:
-            c.execute("DELETE FROM referrals WHERE id = %s", (referral_id,))
-        conn.commit()
-        st.success("Referral eliminato con successo!")
-    except Exception as e:
-        st.error(f"Errore nell'eliminazione del referral: {e}")
-    finally:
-        conn.close()
+    c = conn.cursor()
+    query = "DELETE FROM referrals WHERE id = %s"
+    c.execute(query, (referral_id,))
+    conn.commit()
+    conn.close()
+    st.success("Referral eliminato con successo!")
+    backup_database()
 
 # Funzioni per Formazione
 def carica_formazione():
     conn = get_connection()
-    try:
-        with conn.cursor() as c:
-            c.execute("SELECT id, recruiter_id, corso_nome, data_completamento FROM formazione ORDER BY data_completamento DESC")
-            formazione = c.fetchall()
-    finally:
-        conn.close()
-    return formazione
+    c = conn.cursor()
+    c.execute("SELECT id, recruiter_id, corso_nome, data_completamento FROM formazione ORDER BY data_completamento DESC")
+    rows = c.fetchall()
+    conn.close()
+    return rows
 
 def inserisci_formazione(recruiter_id, corso_nome, data_completamento):
     conn = get_connection()
-    try:
-        with conn.cursor() as c:
-            c.execute("""
-                INSERT INTO formazione (recruiter_id, corso_nome, data_completamento)
-                VALUES (%s, %s, %s)
-            """, (recruiter_id, corso_nome.strip(), data_completamento))
-        conn.commit()
-        st.success("Formazione inserita con successo!")
-    except Exception as e:
-        st.error(f"Errore nell'inserimento della formazione: {e}")
-    finally:
-        conn.close()
+    c = conn.cursor()
+    query = """
+        INSERT INTO formazione (recruiter_id, corso_nome, data_completamento)
+        VALUES (%s, %s, %s)
+    """
+    c.execute(query, (recruiter_id, corso_nome, data_completamento))
+    conn.commit()
+    conn.close()
+    st.success("Formazione inserita con successo!")
+    backup_database()
 
 def modifica_formazione(formazione_id, recruiter_id, corso_nome, data_completamento):
     conn = get_connection()
-    try:
-        with conn.cursor() as c:
-            c.execute("""
-                UPDATE formazione
-                SET recruiter_id = %s, corso_nome = %s, data_completamento = %s
-                WHERE id = %s
-            """, (recruiter_id, corso_nome.strip(), data_completamento, formazione_id))
-        conn.commit()
-        st.success("Formazione aggiornata con successo!")
-    except Exception as e:
-        st.error(f"Errore nell'aggiornamento della formazione: {e}")
-    finally:
-        conn.close()
+    c = conn.cursor()
+    query = """
+        UPDATE formazione
+        SET recruiter_id = %s, corso_nome = %s, data_completamento = %s
+        WHERE id = %s
+    """
+    c.execute(query, (recruiter_id, corso_nome, data_completamento, formazione_id))
+    conn.commit()
+    conn.close()
+    st.success("Formazione aggiornata con successo!")
+    backup_database()
 
 def elimina_formazione(formazione_id):
     conn = get_connection()
-    try:
-        with conn.cursor() as c:
-            c.execute("DELETE FROM formazione WHERE id = %s", (formazione_id,))
-        conn.commit()
-        st.success("Formazione eliminata con successo!")
-    except Exception as e:
-        st.error(f"Errore nell'eliminazione della formazione: {e}")
-    finally:
-        conn.close()
+    c = conn.cursor()
+    query = "DELETE FROM formazione WHERE id = %s"
+    c.execute(query, (formazione_id,))
+    conn.commit()
+    conn.close()
+    st.success("Formazione eliminata con successo!")
+    backup_database()
 
-# Funzioni per Leaderboard Settings (opzionale, se vuoi gestire pesi dinamici)
-def get_leaderboard_settings():
+# Funzioni per Retention
+def carica_retention():
     conn = get_connection()
-    try:
-        with conn.cursor() as c:
-            c.execute("SELECT setting_name, setting_value FROM leaderboard_settings")
-            settings = c.fetchall()
-        settings_dict = {setting['setting_name']: setting['setting_value'] for setting in settings}
-    finally:
-        conn.close()
-    return settings_dict
+    c = conn.cursor()
+    c.execute("SELECT id, progetto_id, data_assunzione, data_cessazione FROM retention ORDER BY data_assunzione DESC")
+    rows = c.fetchall()
+    conn.close()
+    return rows
 
-def update_leaderboard_setting(setting_name, setting_value):
+def inserisci_retention(progetto_id, data_assunzione, data_cessazione):
     conn = get_connection()
-    try:
-        with conn.cursor() as c:
-            c.execute("""
-                INSERT INTO leaderboard_settings (setting_name, setting_value)
-                VALUES (%s, %s)
-                ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)
-            """, (setting_name, setting_value))
-        conn.commit()
-        st.success(f"Impostazione '{setting_name}' aggiornata a {setting_value}.")
-    except Exception as e:
-        st.error(f"Errore nell'aggiornamento della impostazione: {e}")
-    finally:
-        conn.close()
+    c = conn.cursor()
+    query = """
+        INSERT INTO retention (progetto_id, data_assunzione, data_cessazione)
+        VALUES (%s, %s, %s)
+    """
+    c.execute(query, (progetto_id, data_assunzione, data_cessazione))
+    conn.commit()
+    conn.close()
+    st.success("Retention inserita con successo!")
+    backup_database()
+
+def modifica_retention(retention_id, progetto_id, data_assunzione, data_cessazione):
+    conn = get_connection()
+    c = conn.cursor()
+    query = """
+        UPDATE retention
+        SET progetto_id = %s, data_assunzione = %s, data_cessazione = %s
+        WHERE id = %s
+    """
+    c.execute(query, (progetto_id, data_assunzione, data_cessazione, retention_id))
+    conn.commit()
+    conn.close()
+    st.success("Retention aggiornata con successo!")
+    backup_database()
+
+def elimina_retention(retention_id):
+    conn = get_connection()
+    c = conn.cursor()
+    query = "DELETE FROM retention WHERE id = %s"
+    c.execute(query, (retention_id,))
+    conn.commit()
+    conn.close()
+    st.success("Retention eliminata con successo!")
+    backup_database()
 
 #######################################
 # GESTIONE BACKUP in ZIP (Esportazione + Ripristino)
@@ -441,34 +355,30 @@ def backup_database():
     # Crea un nuovo archivio ZIP, sovrascrivendo quello esistente
     with zipfile.ZipFile(backup_zip_path, 'w', zipfile.ZIP_DEFLATED) as backup_zip:
         conn = get_connection()
-        try:
-            with conn.cursor() as c:
-                # Legge l’elenco delle tabelle
-                c.execute("SHOW TABLES")
-                tables = c.fetchall()
+        c = conn.cursor()
 
-                st.info("Inizio backup MySQL in ZIP...")
+        # Legge l’elenco delle tabelle
+        c.execute("SHOW TABLES")
+        tables = c.fetchall()
 
-                for table in tables:
-                    table_name = list(table.values())[0]
-                    # Query: SELECT * FROM <table_name>
-                    c.execute(f"SELECT * FROM {table_name}")
-                    rows = c.fetchall()
-                    if not rows:
-                        st.warning(f"Nessun dato trovato nella tabella {table_name}.")
-                        continue
-                    col_names = rows[0].keys()
+        st.info("Inizio backup MySQL in ZIP...")
 
-                    df_table = pd.DataFrame(rows)
-                    csv_data = df_table.to_csv(index=False, encoding="utf-8")
+        for (table_name,) in tables:
+            # Query: SELECT * FROM <table_name>
+            c.execute(f"SELECT * FROM {table_name}")
+            rows = c.fetchall()
+            if not rows:
+                st.warning(f"Nessun dato trovato nella tabella {table_name}.")
+                continue
+            col_names = rows[0].keys()
 
-                    # Scrivi il CSV direttamente nell'archivio ZIP
-                    backup_zip.writestr(f"{table_name}.csv", csv_data)
+            df_table = pd.DataFrame(rows)
+            csv_data = df_table.to_csv(index=False, encoding="utf-8")
 
-        except pymysql.Error as e:
-            st.error(f"Errore durante il backup: {e}")
-        finally:
-            conn.close()
+            # Scrivi il CSV direttamente nell'archivio ZIP
+            backup_zip.writestr(f"{table_name}.csv", csv_data)
+
+        conn.close()
     
     st.success("Backup completato: archivio ZIP creato in /backup/backup.zip.")
 
@@ -490,119 +400,179 @@ def restore_from_zip(zip_file):
             return
 
         conn = get_connection()
-        try:
-            with conn.cursor() as c:
-                st.info("Inizio ripristino database da ZIP...")
+        c = conn.cursor()
 
-                for csv_file in csv_files:
-                    table_name = os.path.splitext(os.path.basename(csv_file))[0]
-                    st.write(f"Ripristino tabella '{table_name}'...")
+        st.info("Inizio ripristino database da ZIP...")
 
-                    # Leggi il contenuto del CSV
-                    with backup_zip.open(csv_file) as f:
-                        df = pd.read_csv(f)
+        for csv_file in csv_files:
+            table_name = os.path.splitext(os.path.basename(csv_file))[0]
+            st.write(f"Ripristino tabella '{table_name}'...")
 
-                    # Esegui TRUNCATE sulla tabella
-                    try:
-                        c.execute(f"TRUNCATE TABLE {table_name}")
-                    except pymysql.Error as e:
-                        st.error(f"Errore TRUNCATE {table_name}: {e}")
-                        conn.close()
-                        return
+            # Leggi il contenuto del CSV
+            with backup_zip.open(csv_file) as f:
+                df = pd.read_csv(f)
 
-                    # Prepara le colonne e i placeholder per l'INSERT
-                    col_names = df.columns.tolist()
-                    placeholders = ",".join(["%s"] * len(col_names))
-                    col_list_str = ",".join(col_names)
-                    insert_query = f"INSERT INTO {table_name} ({col_list_str}) VALUES ({placeholders})"
+            # Esegui TRUNCATE sulla tabella
+            try:
+                c.execute(f"TRUNCATE TABLE {table_name}")
+            except pymysql.Error as e:
+                st.error(f"Errore TRUNCATE {table_name}: {e}")
+                conn.close()
+                return
 
-                    # Inserisci le righe
-                    try:
-                        for row in df.itertuples(index=False, name=None):
-                            c.execute(insert_query, row)
-                    except pymysql.Error as e:
-                        st.error(f"Errore durante l'INSERT nella tabella {table_name}: {e}")
-                        conn.rollback()
-                        conn.close()
-                        return
+            # Prepara le colonne e i placeholder per l'INSERT
+            col_names = df.columns.tolist()
+            placeholders = ",".join(["%s"] * len(col_names))
+            col_list_str = ",".join(col_names)
+            insert_query = f"INSERT INTO {table_name} ({col_list_str}) VALUES ({placeholders})"
 
-        except pymysql.Error as e:
-            st.error(f"Errore nel ripristino del database: {e}")
-            conn.rollback()
-        finally:
-            conn.commit()
-            conn.close()
-    
-    st.success("Ripristino completato con successo da ZIP.")
+            # Inserisci le righe
+            try:
+                for row in df.itertuples(index=False, name=None):
+                    c.execute(insert_query, row)
+            except pymysql.Error as e:
+                st.error(f"Errore durante l'INSERT nella tabella {table_name}: {e}")
+                conn.rollback()
+                conn.close()
+                return
+
+        conn.commit()
+        conn.close()
+        st.success("Ripristino completato con successo da ZIP.")
 
 #######################################
-# FUNZIONE PER CALCOLARE LEADERBOARD MENSILE
+# CAPACITA' PER RECRUITER
 #######################################
-def calcola_leaderboard_mensile(df, start_date, end_date, settings):
+def carica_recruiters_capacity():
     """
-    Calcola la leaderboard basata su vari criteri di punteggio.
-    Utilizza i settings forniti per i pesi e le soglie.
+    Restituisce un DataFrame con recruiter e la loro capacità.
     """
-    # Filtra i progetti completati nel periodo
+    conn = get_connection()
+    c = conn.cursor()
+    query = '''
+        SELECT r.nome AS sales_recruiter,
+               IFNULL(rc.capacity_max, 5) AS capacity
+        FROM recruiters r
+        LEFT JOIN recruiter_capacity rc ON r.id = rc.recruiter_id
+        ORDER BY r.nome
+    '''
+    c.execute(query)
+    rows = c.fetchall()
+    conn.close()
+    return pd.DataFrame(rows, columns=['sales_recruiter', 'capacity'])
+
+def aggiorna_capacity_recruiter(recruiter_id, nuova_capacity):
+    conn = get_connection()
+    c = conn.cursor()
+    query = """
+        INSERT INTO recruiter_capacity (recruiter_id, capacity_max)
+        VALUES (%s, %s)
+        ON DUPLICATE KEY UPDATE capacity_max = VALUES(capacity_max)
+    """
+    c.execute(query, (recruiter_id, nuova_capacity))
+    conn.commit()
+    conn.close()
+    st.success(f"Capacità per Recruiter ID {recruiter_id} aggiornata a {nuova_capacity}.")
+    backup_database()
+
+#######################################
+# FUNZIONE PER CALCOLARE LEADERBOARD
+#######################################
+def calcola_leaderboard(df, start_date, end_date):
+    """
+    Calcola la leaderboard basata sui criteri di punteggio definiti.
+    """
     df_temp = df.copy()
     df_temp['data_inizio_dt'] = pd.to_datetime(df_temp['data_inizio'], errors='coerce')
     df_temp['recensione_stelle'] = df_temp['recensione_stelle'].fillna(0).astype(int)
 
-    # Bonus da recensioni
+    # Calcolo Bonus da Recensioni
     df_temp['bonus_recensione'] = df_temp['recensione_stelle'].apply(
-        lambda x: settings.get('points_per_bonus_review_5', 500) if x == 5 else (
-            settings.get('points_per_bonus_review_4', 300) if x == 4 else 0
-        )
+        lambda x: 500 if x == 5 else (400 if x == 4 else 0)
     )
 
-    # Punti per progetto completato
-    df_temp['punti_completato'] = settings.get('points_per_project_completed', 10)
-
-    # Punti per completamento rapido
-    df_temp['giorni_completamento'] = (pd.to_datetime(df_temp['data_fine']) - df_temp['data_inizio_dt']).dt.days
-    df_temp['bonus_completamento'] = df_temp['giorni_completamento'].apply(
-        lambda x: settings.get('points_per_fast_completion', 50) if x < 60 else 0
+    # Calcolo Bonus per Progetti Completati in Meno di 60 Giorni
+    df_temp['bonus_progetto_veloce'] = df_temp.apply(
+        lambda row: 50 if (row['stato_progetto'] == 'Completato' and row['tempo_totale'] < 60) else 0, axis=1
     )
 
-    # Filtro progetti completati nel periodo
-    mask = (
-        (df_temp['stato_progetto'] == 'Completato') &
-        (df_temp['data_inizio_dt'] >= pd.Timestamp(start_date)) &
-        (df_temp['data_inizio_dt'] <= pd.Timestamp(end_date))
+    # Calcolo Bonus/Malus per Retention
+    # Assumo che la tabella 'retention' abbia una relazione con 'progetti' tramite 'progetto_id'
+    retention_data = carica_retention()
+    retention_df = pd.DataFrame(retention_data)
+    retention_df['data_assunzione_dt'] = pd.to_datetime(retention_df['data_assunzione'], errors='coerce')
+    retention_df['data_cessazione_dt'] = pd.to_datetime(retention_df['data_cessazione'], errors='coerce')
+
+    # Calcola la durata dell'impiego in mesi
+    retention_df['durata_mesi'] = (retention_df['data_cessazione_dt'] - retention_df['data_assunzione_dt']).dt.days / 30
+
+    # Assegna punti basati sulla durata
+    retention_df['bonus_retention'] = retention_df['durata_mesi'].apply(
+        lambda x: 300 if x >= 6 else (-200 if x < 3 else 0)
     )
-    df_filtro = df_temp[mask].copy()
 
-    if df_filtro.empty:
-        return pd.DataFrame([], columns=[
-            'sales_recruiter','completati','tempo_medio','bonus_totale','punteggio','badge'
-        ])
+    # Merge con i progetti
+    df_temp = df_temp.merge(retention_df[['progetto_id', 'bonus_retention']], left_on='id', right_on='progetto_id', how='left')
+    df_temp['bonus_retention'] = df_temp['bonus_retention'].fillna(0)
 
-    # Calcola completati e tempo medio
-    group = df_filtro.groupby('sales_recruiter')
-    completati = group.size().reset_index(name='completati')
-    tempo_medio = group['tempo_totale'].mean().reset_index(name='tempo_medio')
-    bonus_recensione = group['bonus_recensione'].sum().reset_index(name='bonus_totale')
-    bonus_completamento = group['bonus_completamento'].sum().reset_index(name='bonus_completamento')
+    # Calcolo Bonus per Partecipazione alle Riunioni
+    riunioni_data = carica_riunioni()
+    riunioni_df = pd.DataFrame(riunioni_data)
+    riunioni_df = riunioni_df.merge(carica_recruiters(), left_on='recruiter_id', right_on='id', how='left')
+    riunioni_df['bonus_riunione'] = riunioni_df['partecipato'].apply(lambda x: 100 if x else 0)
+    bonus_riunione = riunioni_df.groupby('nome')['bonus_riunione'].sum().reset_index()
+    bonus_riunione.rename(columns={'nome': 'sales_recruiter', 'bonus_riunione': 'bonus_riunione'}, inplace=True)
 
-    # Merge tutti i bonus
-    leaderboard = completati.merge(tempo_medio, on='sales_recruiter', how='left')
-    leaderboard = leaderboard.merge(bonus_recensione, on='sales_recruiter', how='left')
-    leaderboard = leaderboard.merge(bonus_completamento, on='sales_recruiter', how='left')
+    # Calcolo Bonus per Referral
+    referrals_data = carica_referrals()
+    referrals_df = pd.DataFrame(referrals_data)
+    referrals_df = referrals_df.merge(carica_recruiters(), left_on='recruiter_id', right_on='id', how='left')
+    referrals_df['bonus_referral'] = referrals_df['stato'].apply(lambda x: 1000 if x.lower() == 'acquisito' else 0)
+    bonus_referral = referrals_df.groupby('nome')['bonus_referral'].sum().reset_index()
+    bonus_referral.rename(columns={'nome': 'sales_recruiter', 'bonus_referral': 'bonus_referral'}, inplace=True)
+
+    # Calcolo Bonus per Formazione
+    formazione_data = carica_formazione()
+    formazione_df = pd.DataFrame(formazione_data)
+    formazione_df = formazione_df.merge(carica_recruiters(), left_on='recruiter_id', right_on='id', how='left')
+    formazione_df['bonus_formazione'] = formazione_df['corso_nome'].apply(lambda x: 300 if x else 0)
+    bonus_formazione = formazione_df.groupby('nome')['bonus_formazione'].sum().reset_index()
+    bonus_formazione.rename(columns={'nome': 'sales_recruiter', 'bonus_formazione': 'bonus_formazione'}, inplace=True)
+
+    # Aggrega tutti i bonus
+    bonus_totali = bonus_riunione.merge(bonus_referral, on='sales_recruiter', how='left').merge(bonus_formazione, on='sales_recruiter', how='left')
+    bonus_totali = bonus_totali.fillna(0)
+
+    # Calcolo Punteggio Totale
+    leaderboard = df_temp.groupby('sales_recruiter').agg(
+        completati=('id', lambda x: (df_temp.loc[x, 'stato_progetto'] == 'Completato').sum()),
+        bonus_recensione=('bonus_recensione', 'sum'),
+        bonus_progetto_veloce=('bonus_progetto_veloce', 'sum'),
+        bonus_retention=('bonus_retention', 'sum')
+    ).reset_index()
+
+    # Merge con altri bonus
+    leaderboard = leaderboard.merge(bonus_totali, on='sales_recruiter', how='left')
+    leaderboard = leaderboard.fillna(0)
 
     # Calcola punteggio totale
     leaderboard['punteggio'] = (
-        leaderboard['completati'] * settings.get('points_per_project_completed', 10) +
-        leaderboard['bonus_totale'] +
-        leaderboard['bonus_completamento']
+        leaderboard['completati'] * 10 +
+        leaderboard['bonus_recensione'] +
+        leaderboard['bonus_progetto_veloce'] +
+        leaderboard['bonus_retention'] +
+        leaderboard['bonus_riunione'] +
+        leaderboard['bonus_referral'] +
+        leaderboard['bonus_formazione']
     )
 
     # Assegna badge
     def assegna_badge(punteggio):
-        if punteggio >= settings.get('badge_gold_threshold', 10000):
+        if punteggio >= 10000:
             return "Gold"
-        elif punteggio >= settings.get('badge_silver_threshold', 5000):
+        elif punteggio >= 5000:
             return "Silver"
-        elif punteggio >= settings.get('badge_bronze_threshold', 2000):
+        elif punteggio >= 2000:
             return "Bronze"
         return "Grey"
 
@@ -614,12 +584,30 @@ def calcola_leaderboard_mensile(df, start_date, end_date, settings):
     return leaderboard
 
 #######################################
+# UTILITIES PER FORMATTARE LE DATE
+#######################################
+def format_date_display(x):
+    """Formatta le date dal formato 'YYYY-MM-DD' a 'DD/MM/YYYY'."""
+    if not x:
+        return ""
+    try:
+        return datetime.strptime(x, '%Y-%m-%d').strftime('%d/%m/%Y')
+    except ValueError:
+        return x  # Se il formato non è corretto o è vuoto, lascio inalterato
+
+def parse_date(date_str):
+    """Converti una stringa di data in un oggetto datetime.date (assumendo formato 'YYYY-MM-DD')."""
+    try:
+        return datetime.strptime(date_str, '%Y-%m-%d').date()
+    except (ValueError, TypeError):
+        return None
+
+#######################################
 # CONFIG E LAYOUT
 #######################################
-STATO_REFERRAL_OPTIONS = ["In Attesa", "Accettato", "Rifiutato"]
+STATI_PROGETTO = ["Completato", "In corso", "Bloccato"]
+STATO_REFERRAL_OPTIONS = ["Acquisito", "Non Acquisito"]  # Assicurati che questi valori corrispondano ai tuoi dati
 PARTICIPATO_OPTIONS = [True, False]
-
-STATO_PROGETTO = ["Completato", "In corso", "Bloccato"]
 
 # Carichiamo i riferimenti
 settori_db = carica_settori()
@@ -628,7 +616,7 @@ rec_db = carica_recruiters()
 
 st.title("Gestione Progetti di Recruiting")
 st.sidebar.title("Navigazione")
-scelta = st.sidebar.radio("Vai a", ["Inserisci Dati", "Dashboard", "Gestisci Opzioni", "Gestisci Classifica"])
+scelta = st.sidebar.radio("Vai a", ["Inserisci Dati", "Dashboard", "Gestisci Opzioni", "Gestisci"])
 
 #######################################
 # 1. INSERISCI DATI
@@ -674,7 +662,6 @@ if scelta == "Inserisci Dati":
         # Tempo Previsto
         tempo_previsto = st.number_input("Tempo Previsto (giorni)", min_value=0, step=1, value=0)
 
-        # Pulsante di Submit
         submitted = st.form_submit_button("Inserisci Progetto")
         if submitted:
             if not cliente.strip():
@@ -705,12 +692,13 @@ elif scelta == "Dashboard":
         st.info("Nessun progetto disponibile nel DB.")
     else:
         # Creiamo le Tab
-        tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
             "Panoramica",
             "Carico Proiettato / Previsione",
             "Bonus e Premi",
             "Backup",
-            "Classifica"
+            "Classifica",
+            "Gestione"
         ])
 
         ################################
@@ -792,20 +780,20 @@ elif scelta == "Dashboard":
                 st.plotly_chart(fig_attivi, use_container_width=True)
 
                 st.subheader("Capacità di Carico e Over Capacity")
-                df_capacity = carica_capacity_recruiter()
+                df_capacity = carica_recruiters_capacity()
                 recruiters_unici = df['sales_recruiter'].unique()
                 cap_df = pd.DataFrame({'sales_recruiter': recruiters_unici})
                 cap_df = cap_df.merge(attivi_count, on='sales_recruiter', how='left').fillna(0)
                 cap_df = cap_df.merge(df_capacity, on='sales_recruiter', how='left').fillna(5)
-                cap_df['capacity_max'] = cap_df['capacity_max'].astype(int)
+                cap_df['capacity'] = cap_df['capacity'].astype(int)
                 cap_df['Progetti Attivi'] = cap_df['Progetti Attivi'].astype(int)
-                cap_df['Capacità Disponibile'] = cap_df['capacity_max'] - cap_df['Progetti Attivi']
+                cap_df['Capacità Disponibile'] = cap_df['capacity'] - cap_df['Progetti Attivi']
                 cap_df.loc[cap_df['Capacità Disponibile'] < 0, 'Capacità Disponibile'] = 0
 
                 overcap = cap_df[cap_df['Capacità Disponibile'] == 0]
                 if not overcap.empty:
                     st.warning("Attenzione! I seguenti Recruiter sono a capacità 0:")
-                    st.write(overcap[['sales_recruiter','Progetti Attivi','capacity_max','Capacità Disponibile']])
+                    st.write(overcap[['sales_recruiter','Progetti Attivi','capacity','Capacità Disponibile']])
 
                 fig_carico = px.bar(
                     cap_df,
@@ -847,7 +835,7 @@ elif scelta == "Dashboard":
                 
                 st.subheader("Recruiter che si libereranno in questo orizzonte")
                 closings = df_prossimi.groupby('sales_recruiter').size().reset_index(name='progetti_che_chiudono')
-                df_capacity = carica_capacity_recruiter()
+                df_capacity = carica_recruiters_capacity()
                 df_attivi = df[df['stato_progetto'].isin(["In corso","Bloccato"])]
                 attivi_count = df_attivi.groupby('sales_recruiter').size().reset_index(name='Progetti Attivi')
 
@@ -858,10 +846,10 @@ elif scelta == "Dashboard":
 
                 rec_df['Nuovi Attivi'] = rec_df['Progetti Attivi'] - rec_df['progetti_che_chiudono']
                 rec_df.loc[rec_df['Nuovi Attivi'] < 0, 'Nuovi Attivi'] = 0
-                rec_df['Capacità Disponibile'] = rec_df['capacity_max'] - rec_df['Nuovi Attivi']
+                rec_df['Capacità Disponibile'] = rec_df['capacity'] - rec_df['Nuovi Attivi']
                 rec_df.loc[rec_df['Capacità Disponibile'] < 0, 'Capacità Disponibile'] = 0
 
-                st.dataframe(rec_df[['sales_recruiter','capacity_max','Progetti Attivi','progetti_che_chiudono','Nuovi Attivi','Capacità Disponibile']])
+                st.dataframe(rec_df[['sales_recruiter','capacity','Progetti Attivi','progetti_che_chiudono','Nuovi Attivi','Capacità Disponibile']])
                 st.write("""
                     Da questa tabella vedi quanti progetti chiudono per ogni recruiter 
                     entro l'orizzonte selezionato, 
@@ -876,7 +864,7 @@ elif scelta == "Dashboard":
         with tab3:
             st.subheader("Bonus e Premi")
             st.write("""
-                Esempio: 4 stelle => 300€, 5 stelle => 500€.
+                Esempio: 4 stelle => 400€, 5 stelle => 500€, ecc.
             """)
             st.markdown("### Filtro per Anno")
             anni_disponibili_bonus = sorted(df['data_inizio_dt'].dt.year.dropna().unique())
@@ -896,12 +884,10 @@ elif scelta == "Dashboard":
                 st.stop()
 
             # Calcola il bonus totale per ogni recruiter
-            settings = get_leaderboard_settings()
-            leaderboard_df = calcola_leaderboard_mensile(
+            leaderboard_df = calcola_leaderboard(
                 df=df,
                 start_date=start_date_bonus,
-                end_date=end_date_bonus,
-                settings=settings
+                end_date=end_date_bonus
             )
 
             if leaderboard_df.empty:
@@ -928,9 +914,14 @@ elif scelta == "Dashboard":
                 st.markdown("""
                 **Formula Punteggio**  
                 - +10 punti ogni progetto completato  
-                - +300 punti per ogni recensione a 4 stelle  
                 - +500 punti per ogni recensione a 5 stelle  
+                - +400 punti per ogni recensione a 4 stelle  
                 - +50 punti per ogni progetto completato in meno di 60 giorni  
+                - +300 punti per la retention (6+ mesi)  
+                - -200 punti per la retention (meno di 3 mesi)  
+                - +100 punti per ogni riunione a cui partecipa  
+                - +1000 punti per ogni nuovo cliente acquisito tramite referral  
+                - +300 punti per ogni corso completato  
                 """)
 
                 st.markdown("""
@@ -1002,15 +993,7 @@ elif scelta == "Dashboard":
 
             st.write(f"Anno in analisi: {anno_leader}")
 
-            # Recupera le impostazioni correnti
-            settings = get_leaderboard_settings()
-
-            leaderboard_df = calcola_leaderboard_mensile(
-                df=df_leader_filtered,
-                start_date=start_date_leader,
-                end_date=end_date_leader,
-                settings=settings
-            )
+            leaderboard_df = calcola_leaderboard(df_leader_filtered, start_date_leader, end_date_leader)
             if leaderboard_df.empty:
                 st.info("Nessun progetto completato in questo periodo.")
             else:
@@ -1035,9 +1018,14 @@ elif scelta == "Dashboard":
                 st.markdown("""
                 **Formula Punteggio**  
                 - +10 punti ogni progetto completato  
-                - +300 punti per ogni recensione a 4 stelle  
                 - +500 punti per ogni recensione a 5 stelle  
+                - +400 punti per ogni recensione a 4 stelle  
                 - +50 punti per ogni progetto completato in meno di 60 giorni  
+                - +300 punti per la retention (6+ mesi)  
+                - -200 punti per la retention (meno di 3 mesi)  
+                - +100 punti per ogni riunione a cui partecipa  
+                - +1000 punti per ogni nuovo cliente acquisito tramite referral  
+                - +300 punti per ogni corso completato  
                 """)
 
                 st.markdown("""
@@ -1051,77 +1039,47 @@ elif scelta == "Dashboard":
             ################################
             # Grafici nella Classifica
             ################################
+            st.subheader("Grafici della Classifica")
+
+            # **Tempo Medio per Recruiter**
+            st.markdown("**1) Tempo Medio per Recruiter**")
+            df_comp = df_leader_filtered[
+                (df_leader_filtered['stato_progetto'] == 'Completato') &
+                (df_leader_filtered['data_inizio_dt'] >= pd.Timestamp(start_date_leader)) &
+                (df_leader_filtered['data_inizio_dt'] <= pd.Timestamp(end_date_leader))
+            ].copy()
+            veloce = df_comp.groupby('sales_recruiter')['tempo_totale'].mean().reset_index()
+            veloce['tempo_totale'] = veloce['tempo_totale'].fillna(0)
+            veloce = veloce.sort_values(by='tempo_totale', ascending=True)
+            if veloce.empty:
+                st.info("Nessun progetto completato per calcolare la velocità.")
+            else:
+                fig2, ax2 = plt.subplots(figsize=(8,6))
+                ax2.bar(veloce['sales_recruiter'], veloce['tempo_totale'], color='#636EFA')  # Colore simile al grafico avvicinamento
+                ax2.set_title("Tempo Medio (giorni) - Più basso = più veloce")
+                ax2.set_xlabel("Recruiter")
+                ax2.set_ylabel("Tempo Medio (giorni)")
+                plt.xticks(rotation=45, ha='right')
+                st.pyplot(fig2)
+
+            # **Bonus Totale per Recruiter**
+            st.markdown("**2) Bonus Totale per Recruiter**")
             if not leaderboard_df.empty:
-                st.subheader("Grafici della Classifica")
-
-                # **1) Leaderboard Totale**
-                st.markdown("**1) Leaderboard Totale**")
-                fig1 = px.bar(
-                    leaderboard_df,
-                    x='sales_recruiter',
-                    y='punteggio',
-                    color='badge',
-                    title='Punteggio Totale per Recruiter',
-                    color_discrete_map={
-                        "Gold": "gold",
-                        "Silver": "silver",
-                        "Bronze": "brown",
-                        "Grey": "grey"
-                    }
-                )
-                st.plotly_chart(fig1, use_container_width=True)
-
-                # **2) Recruiter più veloce (Tempo Medio)**
-                st.markdown("**2) Recruiter più veloce (Tempo Medio)**")
-                df_comp = df_leader_filtered[
-                    (df_leader_filtered['stato_progetto'] == 'Completato') &
-                    (df_leader_filtered['data_inizio_dt'] >= pd.Timestamp(start_date_leader)) &
-                    (df_leader_filtered['data_inizio_dt'] <= pd.Timestamp(end_date_leader))
-                ].copy()
-                veloce = df_comp.groupby('sales_recruiter')['tempo_totale'].mean().reset_index()
-                veloce['tempo_totale'] = veloce['tempo_totale'].fillna(0)
-                veloce = veloce.sort_values(by='tempo_totale', ascending=True)
-                if veloce.empty:
-                    st.info("Nessun progetto completato per calcolare la velocità.")
-                else:
-                    fig2 = px.bar(
-                        veloce,
-                        x='tempo_totale',
-                        y='sales_recruiter',
-                        orientation='h',
-                        labels={'tempo_totale': 'Tempo Medio (giorni)', 'sales_recruiter': 'Recruiter'},
-                        title='Tempo Medio di Chiusura per Recruiter',
-                        color='tempo_totale',
-                        color_continuous_scale='Blues'
-                    )
-                    st.plotly_chart(fig2, use_container_width=True)
-
-                # **3) Recruiter con più Bonus ottenuti** (Recensioni)
-                st.markdown("**3) Recruiter con più Bonus ottenuti** (Recensioni)")
-                df_bonus = df_leader_filtered.copy()
-                df_bonus['bonus'] = df_bonus['recensione_stelle'].apply(lambda x: calcola_bonus(x))
-                bonus_df = df_bonus.groupby('sales_recruiter')['bonus'].sum().reset_index()
-                bonus_df = bonus_df.sort_values(by='bonus', ascending=False)
-                if bonus_df.empty:
-                    st.info("Nessun bonus calcolato.")
-                else:
-                    fig3 = px.bar(
-                        bonus_df,
-                        x='bonus',
-                        y='sales_recruiter',
-                        orientation='h',
-                        labels={'bonus': 'Bonus Totale (€)', 'sales_recruiter': 'Recruiter'},
-                        title='Bonus Totale Ottenuto per Recruiter',
-                        color='bonus',
-                        color_continuous_scale='Oranges'
-                    )
-                    st.plotly_chart(fig3, use_container_width=True)
+                fig3, ax3 = plt.subplots(figsize=(8,6))
+                ax3.bar(leaderboard_df['sales_recruiter'], leaderboard_df['punteggio'], color='#EF553B')  # Colore simile al grafico avvicinamento
+                ax3.set_title("Bonus Totale Ottenuto")
+                ax3.set_xlabel("Recruiter")
+                ax3.set_ylabel("Bonus Totale (€)")
+                plt.xticks(rotation=45, ha='right')
+                st.pyplot(fig3)
+            else:
+                st.info("Nessun bonus calcolato.")
 
 #######################################
 # 3. GESTISCI OPZIONI
 #######################################
 elif scelta == "Gestisci Opzioni":
-    st.write("Gestione settori, PM, recruiters e capacity in manage_options.py")
+    st.write("Gestione settori, PM, recruiters e capacity in `manage_options.py`.")
     st.markdown("### Nota")
     st.markdown("""
     La gestione delle opzioni (settori, Project Managers, Recruiters e Capacità) è gestita nel file `manage_options.py`.
@@ -1129,101 +1087,14 @@ elif scelta == "Gestisci Opzioni":
     """)
 
 #######################################
-# 4. GESTISCI CLASSIFICA (OPZIONALE)
+# 4. GESTISCI
 #######################################
-# Puoi implementare una sezione separata per gestire le impostazioni della classifica
-# Se desideri mantenere questa funzionalità nel `app.py`, puoi aggiungerla qui
-
-#######################################
-# 5. GESTIONE AVANZATA (Nuova Sezione "Gestione")
-#######################################
-elif scelta == "Gestisci Classifica":
-    st.header("Gestione Classifica (Leaderboard)")
-
-    # Recupera le impostazioni attuali
-    settings = get_leaderboard_settings()
-    
-    st.subheader("Impostazioni Correnti")
-    for key, value in settings.items():
-        st.write(f"**{key.replace('_', ' ').capitalize()}**: {value}")
-    
-    st.write("---")
-    st.subheader("Aggiorna Impostazioni della Classifica")
-    
-    # Form per aggiornare le impostazioni
-    with st.form("form_gestisci_leaderboard"):
-        points_per_project_completed = st.number_input(
-            "Punti per Progetto Completato",
-            min_value=0,
-            step=1,
-            value=float(settings.get('points_per_project_completed', 10))
-        )
-        
-        points_per_bonus_review_4 = st.number_input(
-            "Punti per Recensione a 4 Stelle",
-            min_value=0,
-            step=100,
-            value=float(settings.get('points_per_bonus_review_4', 300))
-        )
-        
-        points_per_bonus_review_5 = st.number_input(
-            "Punti per Recensione a 5 Stelle",
-            min_value=0,
-            step=100,
-            value=float(settings.get('points_per_bonus_review_5', 500))
-        )
-        
-        points_per_fast_completion = st.number_input(
-            "Punti per Completamento Rapido (<60 giorni)",
-            min_value=0,
-            step=10,
-            value=float(settings.get('points_per_fast_completion', 50))
-        )
-        
-        badge_gold_threshold = st.number_input(
-            "Soglia per Badge Gold",
-            min_value=0,
-            step=1000,
-            value=float(settings.get('badge_gold_threshold', 10000))
-        )
-        
-        badge_silver_threshold = st.number_input(
-            "Soglia per Badge Silver",
-            min_value=0,
-            step=500,
-            value=float(settings.get('badge_silver_threshold', 5000))
-        )
-        
-        badge_bronze_threshold = st.number_input(
-            "Soglia per Badge Bronze",
-            min_value=0,
-            step=500,
-            value=float(settings.get('badge_bronze_threshold', 2000))
-        )
-        
-        submit_settings = st.form_submit_button("Aggiorna Impostazioni")
-        if submit_settings:
-            update_leaderboard_setting('points_per_project_completed', points_per_project_completed)
-            update_leaderboard_setting('points_per_bonus_review_4', points_per_bonus_review_4)
-            update_leaderboard_setting('points_per_bonus_review_5', points_per_bonus_review_5)
-            update_leaderboard_setting('points_per_fast_completion', points_per_fast_completion)
-            update_leaderboard_setting('badge_gold_threshold', badge_gold_threshold)
-            update_leaderboard_setting('badge_silver_threshold', badge_silver_threshold)
-            update_leaderboard_setting('badge_bronze_threshold', badge_bronze_threshold)
-
-#######################################
-# 6. GESTIONE AVANZATA: "Gestione" per Riunioni, Referrals e Formazione
-#######################################
-# Aggiungiamo una nuova opzione nella sidebar per "Gestione"
-elif scelta == "Gestisci Classifica":
-    st.header("Gestione Classifica (Leaderboard)")
-
-elif scelta == "Gestisci Riunioni, Referrals e Formazione":
+elif scelta == "Gestisci":
     st.header("Gestione Avanzata")
-    
-    # Creiamo le Tab per Riunioni, Referrals, Formazione
-    tab_riunioni, tab_referrals, tab_formazione = st.tabs(["Riunioni", "Referrals", "Formazione"])
-    
+
+    # Creiamo le Tab per Riunioni, Referrals, Formazione, Retention
+    tab_riunioni, tab_referrals, tab_formazione, tab_retention = st.tabs(["Riunioni", "Referrals", "Formazione", "Retention"])
+
     ###################################
     # TAB: Riunioni
     ###################################
@@ -1261,15 +1132,29 @@ elif scelta == "Gestisci Riunioni, Referrals e Formazione":
                 with st.expander(f"Riunione ID {ri_id} - {data_riunione}"):
                     recruiters = carica_recruiters()
                     recruiter_nomi = [r['nome'] for r in recruiters]
-                    recruiter_sel = st.selectbox("Recruiter", recruiter_nomi, index=recruiter_nomi.index(next(r['nome'] for r in recruiters if r['id'] == recruiter_id)), key=f"recruiter_{ri_id}")
+                    recruiter_sel = st.selectbox(
+                        "Recruiter", 
+                        recruiter_nomi, 
+                        index=recruiter_nomi.index(next(r['nome'] for r in recruiters if r['id'] == recruiter_id)),
+                        key=f"recruiter_{ri_id}"
+                    )
                     recruiter_id_new = None
                     for r in recruiters:
                         if r['nome'] == recruiter_sel:
                             recruiter_id_new = r['id']
                             break
                     
-                    data_riunione_new = st.date_input("Data Riunione", value=datetime.strptime(data_riunione, '%Y-%m-%d').date(), key=f"data_riunione_{ri_id}")
-                    partecipato_new = st.selectbox("Partecipato", PARTICIPATO_OPTIONS, index=int(partecipato), key=f"partecipato_{ri_id}")
+                    data_riunione_new = st.date_input(
+                        "Data Riunione", 
+                        value=datetime.strptime(data_riunione, '%Y-%m-%d').date(), 
+                        key=f"data_riunione_{ri_id}"
+                    )
+                    partecipato_new = st.selectbox(
+                        "Partecipato", 
+                        PARTICIPATO_OPTIONS, 
+                        index=int(partecipato), 
+                        key=f"partecipato_{ri_id}"
+                    )
                     
                     col1, col2 = st.columns([1,1])
                     with col1:
@@ -1327,7 +1212,12 @@ elif scelta == "Gestisci Riunioni, Referrals e Formazione":
                 with st.expander(f"Referral ID {ref_id} - {cliente_nome}"):
                     recruiters = carica_recruiters()
                     recruiter_nomi = [r['nome'] for r in recruiters]
-                    recruiter_sel = st.selectbox("Recruiter", recruiter_nomi, index=recruiter_nomi.index(next(r['nome'] for r in recruiters if r['id'] == recruiter_id)), key=f"recruiter_ref_{ref_id}")
+                    recruiter_sel = st.selectbox(
+                        "Recruiter", 
+                        recruiter_nomi, 
+                        index=recruiter_nomi.index(next(r['nome'] for r in recruiters if r['id'] == recruiter_id)),
+                        key=f"recruiter_ref_{ref_id}"
+                    )
                     recruiter_id_new = None
                     for r in recruiters:
                         if r['nome'] == recruiter_sel:
@@ -1335,8 +1225,17 @@ elif scelta == "Gestisci Riunioni, Referrals e Formazione":
                             break
                     
                     cliente_nome_new = st.text_input("Nome Cliente", value=cliente_nome, key=f"cliente_ref_{ref_id}")
-                    data_referral_new = st.date_input("Data Referral", value=datetime.strptime(data_referral, '%Y-%m-%d').date(), key=f"data_referral_{ref_id}")
-                    stato_referral_new = st.selectbox("Stato Referral", STATO_REFERRAL_OPTIONS, index=STATO_REFERRAL_OPTIONS.index(stato), key=f"stato_referral_{ref_id}")
+                    data_referral_new = st.date_input(
+                        "Data Referral", 
+                        value=datetime.strptime(data_referral, '%Y-%m-%d').date(), 
+                        key=f"data_referral_{ref_id}"
+                    )
+                    stato_referral_new = st.selectbox(
+                        "Stato Referral", 
+                        STATO_REFERRAL_OPTIONS, 
+                        index=STATO_REFERRAL_OPTIONS.index(stato),
+                        key=f"stato_referral_{ref_id}"
+                    )
                     
                     col1, col2 = st.columns([1,1])
                     with col1:
@@ -1395,7 +1294,12 @@ elif scelta == "Gestisci Riunioni, Referrals e Formazione":
                 with st.expander(f"Formazione ID {form_id} - {corso_nome}"):
                     recruiters = carica_recruiters()
                     recruiter_nomi = [r['nome'] for r in recruiters]
-                    recruiter_sel = st.selectbox("Recruiter", recruiter_nomi, index=recruiter_nomi.index(next(r['nome'] for r in recruiters if r['id'] == recruiter_id)), key=f"recruiter_formazione_{form_id}")
+                    recruiter_sel = st.selectbox(
+                        "Recruiter", 
+                        recruiter_nomi, 
+                        index=recruiter_nomi.index(next(r['nome'] for r in recruiters if r['id'] == recruiter_id)),
+                        key=f"recruiter_formazione_{form_id}"
+                    )
                     recruiter_id_new = None
                     for r in recruiters:
                         if r['nome'] == recruiter_sel:
@@ -1403,7 +1307,11 @@ elif scelta == "Gestisci Riunioni, Referrals e Formazione":
                             break
                     
                     corso_nome_new = st.text_input("Nome Corso", value=corso_nome, key=f"corso_formazione_{form_id}")
-                    data_completamento_new = st.date_input("Data Completamento", value=datetime.strptime(data_completamento, '%Y-%m-%d').date(), key=f"data_completamento_formazione_{form_id}")
+                    data_completamento_new = st.date_input(
+                        "Data Completamento", 
+                        value=datetime.strptime(data_completamento, '%Y-%m-%d').date(), 
+                        key=f"data_completamento_formazione_{form_id}"
+                    )
                     
                     col1, col2 = st.columns([1,1])
                     with col1:
@@ -1422,318 +1330,88 @@ elif scelta == "Gestisci Riunioni, Referrals e Formazione":
         else:
             st.info("Nessuna formazione presente nel DB.")
 
-#######################################
-# 3. GESTISCI OPZIONI
-#######################################
-elif scelta == "Gestisci Opzioni":
-    st.write("Gestione settori, PM, recruiters e capacity in manage_options.py")
-    st.markdown("### Nota")
-    st.markdown("""
-    La gestione delle opzioni (settori, Project Managers, Recruiters e Capacità) è gestita nel file `manage_options.py`.
-    Assicurati di navigare a quella pagina per gestire le tue opzioni.
-    """)
-
-#######################################
-# 4. GESTISCI LEADERBOARD
-#######################################
-elif scelta == "Gestisci Classifica":
-    st.header("Gestione Classifica (Leaderboard)")
-
-    # Recupera le impostazioni attuali
-    settings = get_leaderboard_settings()
-    
-    st.subheader("Impostazioni Correnti")
-    for key, value in settings.items():
-        st.write(f"**{key.replace('_', ' ').capitalize()}**: {value}")
-    
-    st.write("---")
-    st.subheader("Aggiorna Impostazioni della Classifica")
-    
-    # Form per aggiornare le impostazioni
-    with st.form("form_gestisci_leaderboard"):
-        points_per_project_completed = st.number_input(
-            "Punti per Progetto Completato",
-            min_value=0,
-            step=1,
-            value=float(settings.get('points_per_project_completed', 10))
-        )
-        
-        points_per_bonus_review_4 = st.number_input(
-            "Punti per Recensione a 4 Stelle",
-            min_value=0,
-            step=100,
-            value=float(settings.get('points_per_bonus_review_4', 300))
-        )
-        
-        points_per_bonus_review_5 = st.number_input(
-            "Punti per Recensione a 5 Stelle",
-            min_value=0,
-            step=100,
-            value=float(settings.get('points_per_bonus_review_5', 500))
-        )
-        
-        points_per_fast_completion = st.number_input(
-            "Punti per Completamento Rapido (<60 giorni)",
-            min_value=0,
-            step=10,
-            value=float(settings.get('points_per_fast_completion', 50))
-        )
-        
-        badge_gold_threshold = st.number_input(
-            "Soglia per Badge Gold",
-            min_value=0,
-            step=1000,
-            value=float(settings.get('badge_gold_threshold', 10000))
-        )
-        
-        badge_silver_threshold = st.number_input(
-            "Soglia per Badge Silver",
-            min_value=0,
-            step=500,
-            value=float(settings.get('badge_silver_threshold', 5000))
-        )
-        
-        badge_bronze_threshold = st.number_input(
-            "Soglia per Badge Bronze",
-            min_value=0,
-            step=500,
-            value=float(settings.get('badge_bronze_threshold', 2000))
-        )
-        
-        submit_settings = st.form_submit_button("Aggiorna Impostazioni")
-        if submit_settings:
-            update_leaderboard_setting('points_per_project_completed', points_per_project_completed)
-            update_leaderboard_setting('points_per_bonus_review_4', points_per_bonus_review_4)
-            update_leaderboard_setting('points_per_bonus_review_5', points_per_bonus_review_5)
-            update_leaderboard_setting('points_per_fast_completion', points_per_fast_completion)
-            update_leaderboard_setting('badge_gold_threshold', badge_gold_threshold)
-            update_leaderboard_setting('badge_silver_threshold', badge_silver_threshold)
-            update_leaderboard_setting('badge_bronze_threshold', badge_bronze_threshold)
-
-#######################################
-# 5. GESTIONE AVANZATA: Riunioni, Referrals, Formazione
-#######################################
-elif scelta == "Gestisci Classifica":
-    st.header("Gestione Classifica (Leaderboard)")
-    
-else:
-    st.error("Sezione non riconosciuta. Ricarica l'applicazione.")
-
-#######################################
-# 6. Sezione "Gestione" per Riunioni, Referrals e Formazione
-#######################################
-# Aggiungiamo una nuova opzione nella sidebar per "Gestione Avanzata"
-# Modifica la radio nella sidebar per includere "Gestisci Avanzato"
-# Aggiorniamo la scelta per includere la nuova opzione
-
-# Aggiornamento della barra laterale di navigazione
-st.sidebar.title("Navigazione")
-scelta = st.sidebar.radio("Vai a", ["Inserisci Dati", "Dashboard", "Gestisci Opzioni", "Gestisci Classifica", "Gestisci Avanzato"])
-
-if scelta == "Gestisci Avanzato":
-    st.header("Gestione Avanzata")
-    
-    # Creiamo le Tab per Riunioni, Referrals, Formazione
-    tab_riunioni, tab_referrals, tab_formazione = st.tabs(["Riunioni", "Referrals", "Formazione"])
-    
     ###################################
-    # TAB: Riunioni
+    # TAB: Retention
     ###################################
-    with tab_riunioni:
-        st.subheader("Gestione Riunioni")
+    with tab_retention:
+        st.subheader("Gestione Retention dei Candidati")
         
-        # Form per inserire una nuova riunione
-        with st.form("form_inserisci_riunione"):
-            recruiters = carica_recruiters()
-            recruiter_nomi = [r['nome'] for r in recruiters]
-            recruiter_sel = st.selectbox("Recruiter", recruiter_nomi)
-            recruiter_id = None
-            for r in recruiters:
-                if r['nome'] == recruiter_sel:
-                    recruiter_id = r['id']
+        # Form per inserire una nuova retention
+        with st.form("form_inserisci_retention"):
+            progetti = carica_dati_completo()
+            progetti_completati = progetti[progetti['stato_progetto'] == 'Completato']
+            progetto_nomi = progetti_completati['cliente'].tolist()
+            progetto_sel = st.selectbox("Progetto", progetto_nomi)
+            progetto_id = None
+            for p in progetti_completati.itertuples():
+                if p.cliente == progetto_sel:
+                    progetto_id = p.id
                     break
             
-            data_riunione = st.date_input("Data Riunione", value=datetime.today())
-            partecipato = st.selectbox("Partecipato", PARTICIPATO_OPTIONS)
+            data_assunzione = st.date_input("Data Assunzione", value=datetime.today())
+            data_cessazione = st.date_input("Data Cessazione (lascia vuoto se ancora in posizione)")
             
-            submit_riunione = st.form_submit_button("Inserisci Riunione")
-            if submit_riunione:
-                inserisci_riunione(recruiter_id, data_riunione, partecipato)
+            submit_retention = st.form_submit_button("Inserisci Retention")
+            if submit_retention:
+                inserisci_retention(progetto_id, data_assunzione, data_cessazione if data_cessazione != datetime.today().date() else None)
         
         st.write("---")
-        st.subheader("Modifica / Elimina Riunioni Esistenti")
-        riunioni = carica_riunioni()
-        if riunioni:
-            for riunione in riunioni:
-                ri_id = riunione['id']
-                recruiter_id = riunione['recruiter_id']
-                data_riunione = riunione['data_riunione']
-                partecipato = riunione['partecipato']
+        st.subheader("Modifica / Elimina Retention Esistenti")
+        retention = carica_retention()
+        if retention:
+            for ret in retention:
+                ret_id = ret['id']
+                progetto_id = ret['progetto_id']
+                data_assunzione = ret['data_assunzione']
+                data_cessazione = ret['data_cessazione']
                 
-                with st.expander(f"Riunione ID {ri_id} - {data_riunione}"):
-                    recruiters = carica_recruiters()
-                    recruiter_nomi = [r['nome'] for r in recruiters]
-                    recruiter_sel = st.selectbox("Recruiter", recruiter_nomi, index=recruiter_nomi.index(next(r['nome'] for r in recruiters if r['id'] == recruiter_id)), key=f"recruiter_{ri_id}")
-                    recruiter_id_new = None
-                    for r in recruiters:
-                        if r['nome'] == recruiter_sel:
-                            recruiter_id_new = r['id']
+                with st.expander(f"Retention ID {ret_id} - Progetto ID {progetto_id}"):
+                    progetti = carica_dati_completo()
+                    progetto = progetti[progetti['id'] == progetto_id]
+                    if not progetto.empty:
+                        progetto_nome = progetto.iloc[0]['cliente']
+                    else:
+                        progetto_nome = "Progetto Non Trovato"
+
+                    progetti_completati = progetti[progetti['stato_progetto'] == 'Completato']
+                    progetto_nomi = progetti_completati['cliente'].tolist()
+                    progetto_sel = st.selectbox(
+                        "Progetto", 
+                        progetto_nomi, 
+                        index=progetto_nomi.index(progetto_nome) if progetto_nome in progetto_nomi else 0,
+                        key=f"progetto_retention_{ret_id}"
+                    )
+                    progetto_id_new = None
+                    for p in progetti_completati.itertuples():
+                        if p.cliente == progetto_sel:
+                            progetto_id_new = p.id
                             break
-                    
-                    data_riunione_new = st.date_input("Data Riunione", value=datetime.strptime(data_riunione, '%Y-%m-%d').date(), key=f"data_riunione_{ri_id}")
-                    partecipato_new = st.selectbox("Partecipato", PARTICIPATO_OPTIONS, index=int(partecipato), key=f"partecipato_{ri_id}")
+
+                    data_assunzione_new = st.date_input(
+                        "Data Assunzione", 
+                        value=datetime.strptime(data_assunzione, '%Y-%m-%d').date(), 
+                        key=f"data_assunzione_retention_{ret_id}"
+                    )
+                    data_cessazione_new = st.date_input(
+                        "Data Cessazione", 
+                        value=datetime.strptime(data_cessazione, '%Y-%m-%d').date() if data_cessazione else datetime.today().date(),
+                        key=f"data_cessazione_retention_{ret_id}"
+                    )
                     
                     col1, col2 = st.columns([1,1])
                     with col1:
-                        btn_mod = st.button("Modifica", key=f"mod_riunione_{ri_id}")
+                        btn_mod_ret = st.button("Modifica", key=f"mod_retention_{ret_id}")
                     with col2:
-                        btn_del = st.button("Elimina", key=f"del_riunione_{ri_id}")
+                        btn_del_ret = st.button("Elimina", key=f"del_retention_{ret_id}")
                     
-                    if btn_mod:
-                        modifica_riunione(ri_id, recruiter_id_new, data_riunione_new, partecipato_new)
+                    if btn_mod_ret:
+                        modifica_retention(ret_id, progetto_id_new, data_assunzione_new, data_cessazione_new)
                     
-                    if btn_del:
-                        elimina_riunione(ri_id)
+                    if btn_del_ret:
+                        elimina_retention(ret_id)
         else:
-            st.info("Nessuna riunione presente nel DB.")
-
-    ###################################
-    # TAB: Referrals
-    ###################################
-    with tab_referrals:
-        st.subheader("Gestione Referrals")
-        
-        # Form per inserire un nuovo referral
-        with st.form("form_inserisci_referral"):
-            recruiters = carica_recruiters()
-            recruiter_nomi = [r['nome'] for r in recruiters]
-            recruiter_sel = st.selectbox("Recruiter", recruiter_nomi)
-            recruiter_id = None
-            for r in recruiters:
-                if r['nome'] == recruiter_sel:
-                    recruiter_id = r['id']
-                    break
-            
-            cliente_nome = st.text_input("Nome Cliente")
-            data_referral = st.date_input("Data Referral", value=datetime.today())
-            stato_referral = st.selectbox("Stato Referral", STATO_REFERRAL_OPTIONS)
-            
-            submit_referral = st.form_submit_button("Inserisci Referral")
-            if submit_referral:
-                if not cliente_nome.strip():
-                    st.error("Il campo 'Nome Cliente' è obbligatorio!")
-                else:
-                    inserisci_referral(recruiter_id, cliente_nome, data_referral, stato_referral)
-        
-        st.write("---")
-        st.subheader("Modifica / Elimina Referrals Esistenti")
-        referrals = carica_referrals()
-        if referrals:
-            for referral in referrals:
-                ref_id = referral['id']
-                recruiter_id = referral['recruiter_id']
-                cliente_nome = referral['cliente_nome']
-                data_referral = referral['data_referral']
-                stato = referral['stato']
-                
-                with st.expander(f"Referral ID {ref_id} - {cliente_nome}"):
-                    recruiters = carica_recruiters()
-                    recruiter_nomi = [r['nome'] for r in recruiters]
-                    recruiter_sel = st.selectbox("Recruiter", recruiter_nomi, index=recruiter_nomi.index(next(r['nome'] for r in recruiters if r['id'] == recruiter_id)), key=f"recruiter_ref_{ref_id}")
-                    recruiter_id_new = None
-                    for r in recruiters:
-                        if r['nome'] == recruiter_sel:
-                            recruiter_id_new = r['id']
-                            break
-                    
-                    cliente_nome_new = st.text_input("Nome Cliente", value=cliente_nome, key=f"cliente_ref_{ref_id}")
-                    data_referral_new = st.date_input("Data Referral", value=datetime.strptime(data_referral, '%Y-%m-%d').date(), key=f"data_referral_{ref_id}")
-                    stato_referral_new = st.selectbox("Stato Referral", STATO_REFERRAL_OPTIONS, index=STATO_REFERRAL_OPTIONS.index(stato), key=f"stato_referral_{ref_id}")
-                    
-                    col1, col2 = st.columns([1,1])
-                    with col1:
-                        btn_mod_ref = st.button("Modifica", key=f"mod_referral_{ref_id}")
-                    with col2:
-                        btn_del_ref = st.button("Elimina", key=f"del_referral_{ref_id}")
-                    
-                    if btn_mod_ref:
-                        if not cliente_nome_new.strip():
-                            st.error("Il campo 'Nome Cliente' è obbligatorio!")
-                        else:
-                            modifica_referral(ref_id, recruiter_id_new, cliente_nome_new, data_referral_new, stato_referral_new)
-                    
-                    if btn_del_ref:
-                        elimina_referral(ref_id)
-        else:
-            st.info("Nessun referral presente nel DB.")
-
-    ###################################
-    # TAB: Formazione
-    ###################################
-    with tab_formazione:
-        st.subheader("Gestione Formazione")
-        
-        # Form per inserire una nuova formazione
-        with st.form("form_inserisci_formazione"):
-            recruiters = carica_recruiters()
-            recruiter_nomi = [r['nome'] for r in recruiters]
-            recruiter_sel = st.selectbox("Recruiter", recruiter_nomi)
-            recruiter_id = None
-            for r in recruiters:
-                if r['nome'] == recruiter_sel:
-                    recruiter_id = r['id']
-                    break
-            
-            corso_nome = st.text_input("Nome Corso")
-            data_completamento = st.date_input("Data Completamento", value=datetime.today())
-            
-            submit_formazione = st.form_submit_button("Inserisci Formazione")
-            if submit_formazione:
-                if not corso_nome.strip():
-                    st.error("Il campo 'Nome Corso' è obbligatorio!")
-                else:
-                    inserisci_formazione(recruiter_id, corso_nome, data_completamento)
-        
-        st.write("---")
-        st.subheader("Modifica / Elimina Formazione Esistenti")
-        formazioni = carica_formazione()
-        if formazioni:
-            for formazione in formazioni:
-                form_id = formazione['id']
-                recruiter_id = formazione['recruiter_id']
-                corso_nome = formazione['corso_nome']
-                data_completamento = formazione['data_completamento']
-                
-                with st.expander(f"Formazione ID {form_id} - {corso_nome}"):
-                    recruiters = carica_recruiters()
-                    recruiter_nomi = [r['nome'] for r in recruiters]
-                    recruiter_sel = st.selectbox("Recruiter", recruiter_nomi, index=recruiter_nomi.index(next(r['nome'] for r in recruiters if r['id'] == recruiter_id)), key=f"recruiter_formazione_{form_id}")
-                    recruiter_id_new = None
-                    for r in recruiters:
-                        if r['nome'] == recruiter_sel:
-                            recruiter_id_new = r['id']
-                            break
-                    
-                    corso_nome_new = st.text_input("Nome Corso", value=corso_nome, key=f"corso_formazione_{form_id}")
-                    data_completamento_new = st.date_input("Data Completamento", value=datetime.strptime(data_completamento, '%Y-%m-%d').date(), key=f"data_completamento_formazione_{form_id}")
-                    
-                    col1, col2 = st.columns([1,1])
-                    with col1:
-                        btn_mod_form = st.button("Modifica", key=f"mod_formazione_{form_id}")
-                    with col2:
-                        btn_del_form = st.button("Elimina", key=f"del_formazione_{form_id}")
-                    
-                    if btn_mod_form:
-                        if not corso_nome_new.strip():
-                            st.error("Il campo 'Nome Corso' è obbligatorio!")
-                        else:
-                            modifica_formazione(form_id, recruiter_id_new, corso_nome_new, data_completamento_new)
-                    
-                    if btn_del_form:
-                        elimina_formazione(form_id)
-        else:
-            st.info("Nessuna formazione presente nel DB.")
+            st.info("Nessuna retention presente nel DB.")
 
 #######################################
-# 7. FINE DEL CODICE
+# FINE DEL CODICE
 #######################################
