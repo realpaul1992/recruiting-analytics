@@ -5,7 +5,6 @@ import pandas as pd
 import pymysql
 from datetime import datetime, timedelta
 import plotly.express as px
-import matplotlib.pyplot as plt
 import os
 import zipfile  # Import per gestire ZIP
 from io import BytesIO
@@ -256,9 +255,12 @@ def backup_database():
                     # Query: SELECT * FROM <table_name>
                     c.execute(f"SELECT * FROM {table_name}")
                     rows = c.fetchall()
-                    col_names = [desc[0] for desc in c.description]
+                    if not rows:
+                        st.warning(f"Nessun dato trovato nella tabella {table_name}.")
+                        continue
+                    col_names = rows[0].keys()
 
-                    df_table = pd.DataFrame(rows, columns=col_names)
+                    df_table = pd.DataFrame(rows)
                     csv_data = df_table.to_csv(index=False, encoding="utf-8")
 
                     # Scrivi il CSV direttamente nell'archivio ZIP
@@ -323,13 +325,13 @@ def restore_from_zip(zip_file):
                         conn.close()
                         return
 
-            conn.commit()
-            st.success("Ripristino completato con successo da ZIP.")
-        except pymysql.Error as e:
-            st.error(f"Errore nel ripristino del database: {e}")
-            conn.rollback()
-        finally:
-            conn.close()
+        conn.commit()
+        st.success("Ripristino completato con successo da ZIP.")
+    except pymysql.Error as e:
+        st.error(f"Errore nel ripristino del database: {e}")
+        conn.rollback()
+    finally:
+        conn.close()
 
 #######################################
 # CAPACITA' PER RECRUITER
@@ -394,6 +396,9 @@ def calcola_leaderboard_mensile(df_progetti, df_candidati, df_riunioni, df_refer
 
     # Calcola bonus per retenzione
     df_candidati_filtered = pd.DataFrame(df_candidati)
+    if 'recruiter_id' not in df_candidati_filtered.columns:
+        st.error("La colonna 'recruiter_id' non esiste nella tabella 'candidati'.")
+        st.stop()
     df_candidati_filtered['data_placement_dt'] = pd.to_datetime(df_candidati_filtered['data_placement'], errors='coerce')
     df_candidati_filtered['data_dimissioni_dt'] = pd.to_datetime(df_candidati_filtered['data_dimissioni'], errors='coerce')
 
@@ -417,6 +422,9 @@ def calcola_leaderboard_mensile(df_progetti, df_candidati, df_riunioni, df_refer
 
     # Calcola bonus per riunioni partecipate
     df_riunioni_filtered = pd.DataFrame(df_riunioni)
+    if 'data_riunione' not in df_riunioni_filtered.columns:
+        st.error("La colonna 'data_riunione' non esiste nella tabella 'riunioni'.")
+        st.stop()
     df_riunioni_filtered['data_riunione_dt'] = pd.to_datetime(df_riunioni_filtered['data_riunione'], errors='coerce')
     df_riunioni_filtered = df_riunioni_filtered[
         (df_riunioni_filtered['data_riunione_dt'] >= pd.Timestamp(start_date)) &
@@ -907,12 +915,12 @@ elif scelta == "Dashboard":
 
                 # **2) Recruiter più veloce (Tempo Medio)**
                 st.markdown("**2) Recruiter più veloce (Tempo Medio)**")
-                df_comp = df_progetti[
+                df_comp_bonus = df_progetti[
                     (df_progetti['stato_progetto'] == 'Completato') &
                     (df_progetti['data_inizio_dt'] >= pd.Timestamp(start_date_bonus)) &
                     (df_progetti['data_inizio_dt'] <= pd.Timestamp(end_date_bonus))
                 ].copy()
-                veloce = df_comp.groupby('sales_recruiter')['tempo_totale'].mean().reset_index()
+                veloce = df_comp_bonus.groupby('sales_recruiter')['tempo_totale'].mean().reset_index()
                 veloce['tempo_totale'] = veloce['tempo_totale'].fillna(0)
                 veloce = veloce.sort_values(by='tempo_totale', ascending=True)
                 if veloce.empty:
