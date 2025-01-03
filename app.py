@@ -16,6 +16,8 @@ import urllib.parse
 def get_connection():
     """
     Ritorna una connessione MySQL usando pymysql.
+    Sostituisci i parametri (host, port, user, password, database)
+    con quelli del tuo DB su Railway.
     """
     return pymysql.connect(
         host="junction.proxy.rlwy.net",
@@ -63,7 +65,6 @@ def inserisci_dati(cliente, settore_id, pm_id, rec_id, data_inizio):
     tempo_totale = None
     recensione_stelle = None
     recensione_data = None
-    tempo_previsto = None  # gestito altrove
 
     query = """
         INSERT INTO progetti (
@@ -76,10 +77,9 @@ def inserisci_dati(cliente, settore_id, pm_id, rec_id, data_inizio):
             data_fine,
             tempo_totale,
             recensione_stelle,
-            recensione_data,
-            tempo_previsto
+            recensione_data
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """
     c.execute(query, (
         cliente,
@@ -91,8 +91,7 @@ def inserisci_dati(cliente, settore_id, pm_id, rec_id, data_inizio):
         data_fine,
         tempo_totale,
         recensione_stelle,
-        recensione_data,
-        tempo_previsto
+        recensione_data
     ))
     conn.commit()
     conn.close()
@@ -102,7 +101,7 @@ def inserisci_dati(cliente, settore_id, pm_id, rec_id, data_inizio):
 
 def carica_dati_completo():
     """
-    Carica i progetti uniti a settori, pm, recruiters, includendo 'tempo_previsto'.
+    Carica i progetti uniti a settori, pm, recruiters.
     """
     conn = get_connection()
     c = conn.cursor()
@@ -118,8 +117,7 @@ def carica_dati_completo():
             p.data_fine,
             p.tempo_totale,
             p.recensione_stelle,
-            p.recensione_data,
-            p.tempo_previsto
+            p.recensione_data
         FROM progetti p
         JOIN settori s ON p.settore_id = s.id
         JOIN project_managers pm ON p.project_manager_id = pm.id
@@ -131,18 +129,13 @@ def carica_dati_completo():
     columns = [
         'id','cliente','settore','project_manager','sales_recruiter',
         'stato_progetto','data_inizio','data_fine','tempo_totale',
-        'recensione_stelle','recensione_data','tempo_previsto'
+        'recensione_stelle','recensione_data'
     ]
     conn.close()
 
     df = pd.DataFrame(rows, columns=columns)
     
-    # Convertiamo 'tempo_previsto' a numerico
-    if "tempo_previsto" in df.columns:
-        df["tempo_previsto"] = pd.to_numeric(df["tempo_previsto"], errors="coerce")
-        df["tempo_previsto"] = df["tempo_previsto"].fillna(0).astype(int)
-    
-    # Aggiungi 'data_inizio_dt' e 'recensione_data_dt' subito dopo
+    # Aggiungi 'data_inizio_dt' e 'recensione_data_dt'
     df['data_inizio_dt'] = pd.to_datetime(df['data_inizio'], errors='coerce')
     df['recensione_data_dt'] = pd.to_datetime(df['recensione_data'], errors='coerce')
     
@@ -290,50 +283,50 @@ def elimina_formazione(formazione_id):
     st.success("Formazione eliminata con successo!")
     backup_database()
 
-# Funzioni per Retention
-def carica_retention():
+# Funzioni per Candidati (Retention)
+def carica_candidati():
     conn = get_connection()
     c = conn.cursor()
-    c.execute("SELECT id, progetto_id, data_assunzione, data_cessazione FROM retention ORDER BY data_assunzione DESC")
+    c.execute("SELECT id, progetto_id, recruiter_id, candidato_nome, data_inserimento, data_dimissioni FROM candidati ORDER BY data_inserimento DESC")
     rows = c.fetchall()
     conn.close()
     return rows
 
-def inserisci_retention(progetto_id, data_assunzione, data_cessazione):
+def inserisci_candidato(progetto_id, recruiter_id, candidato_nome, data_inserimento, data_dimissioni):
     conn = get_connection()
     c = conn.cursor()
     query = """
-        INSERT INTO retention (progetto_id, data_assunzione, data_cessazione)
-        VALUES (%s, %s, %s)
+        INSERT INTO candidati (progetto_id, recruiter_id, candidato_nome, data_inserimento, data_dimissioni)
+        VALUES (%s, %s, %s, %s, %s)
     """
-    c.execute(query, (progetto_id, data_assunzione, data_cessazione))
+    c.execute(query, (progetto_id, recruiter_id, candidato_nome, data_inserimento, data_dimissioni))
     conn.commit()
     conn.close()
-    st.success("Retention inserita con successo!")
+    st.success("Candidato inserito con successo!")
     backup_database()
 
-def modifica_retention(retention_id, progetto_id, data_assunzione, data_cessazione):
+def modifica_candidato(candidato_id, progetto_id, recruiter_id, candidato_nome, data_inserimento, data_dimissioni):
     conn = get_connection()
     c = conn.cursor()
     query = """
-        UPDATE retention
-        SET progetto_id = %s, data_assunzione = %s, data_cessazione = %s
+        UPDATE candidati
+        SET progetto_id = %s, recruiter_id = %s, candidato_nome = %s, data_inserimento = %s, data_dimissioni = %s
         WHERE id = %s
     """
-    c.execute(query, (progetto_id, data_assunzione, data_cessazione, retention_id))
+    c.execute(query, (progetto_id, recruiter_id, candidato_nome, data_inserimento, data_dimissioni, candidato_id))
     conn.commit()
     conn.close()
-    st.success("Retention aggiornata con successo!")
+    st.success("Candidato aggiornato con successo!")
     backup_database()
 
-def elimina_retention(retention_id):
+def elimina_candidato(candidato_id):
     conn = get_connection()
     c = conn.cursor()
-    query = "DELETE FROM retention WHERE id = %s"
-    c.execute(query, (retention_id,))
+    query = "DELETE FROM candidati WHERE id = %s"
+    c.execute(query, (candidato_id,))
     conn.commit()
     conn.close()
-    st.success("Retention eliminata con successo!")
+    st.success("Candidato eliminato con successo!")
     backup_database()
 
 #######################################
@@ -359,11 +352,11 @@ def backup_database():
 
         # Legge l’elenco delle tabelle
         c.execute("SHOW TABLES")
-        tables = c.fetchall()
+        tables = [list(table.values())[0] for table in c.fetchall()]
 
         st.info("Inizio backup MySQL in ZIP...")
 
-        for (table_name,) in tables:
+        for table_name in tables:
             # Query: SELECT * FROM <table_name>
             c.execute(f"SELECT * FROM {table_name}")
             rows = c.fetchall()
@@ -497,22 +490,21 @@ def calcola_leaderboard(df, start_date, end_date):
     )
 
     # Calcolo Bonus/Malus per Retention
-    # Assumo che la tabella 'retention' abbia una relazione con 'progetti' tramite 'progetto_id'
-    retention_data = carica_retention()
-    retention_df = pd.DataFrame(retention_data)
-    retention_df['data_assunzione_dt'] = pd.to_datetime(retention_df['data_assunzione'], errors='coerce')
-    retention_df['data_cessazione_dt'] = pd.to_datetime(retention_df['data_cessazione'], errors='coerce')
+    candidati_data = carica_candidati()
+    candidati_df = pd.DataFrame(candidati_data)
+    candidati_df['data_inserimento_dt'] = pd.to_datetime(candidati_df['data_inserimento'], errors='coerce')
+    candidati_df['data_dimissioni_dt'] = pd.to_datetime(candidati_df['data_dimissioni'], errors='coerce')
 
     # Calcola la durata dell'impiego in mesi
-    retention_df['durata_mesi'] = (retention_df['data_cessazione_dt'] - retention_df['data_assunzione_dt']).dt.days / 30
+    candidati_df['durata_mesi'] = (candidati_df['data_dimissioni_dt'] - candidati_df['data_inserimento_dt']).dt.days / 30
 
     # Assegna punti basati sulla durata
-    retention_df['bonus_retention'] = retention_df['durata_mesi'].apply(
+    candidati_df['bonus_retention'] = candidati_df['durata_mesi'].apply(
         lambda x: 300 if x >= 6 else (-200 if x < 3 else 0)
     )
 
     # Merge con i progetti
-    df_temp = df_temp.merge(retention_df[['progetto_id', 'bonus_retention']], left_on='id', right_on='progetto_id', how='left')
+    df_temp = df_temp.merge(candidati_df[['progetto_id', 'bonus_retention']], left_on='id', right_on='progetto_id', how='left')
     df_temp['bonus_retention'] = df_temp['bonus_retention'].fillna(0)
 
     # Calcolo Bonus per Partecipazione alle Riunioni
@@ -616,7 +608,7 @@ rec_db = carica_recruiters()
 
 st.title("Gestione Progetti di Recruiting")
 st.sidebar.title("Navigazione")
-scelta = st.sidebar.radio("Vai a", ["Inserisci Dati", "Dashboard", "Gestisci Opzioni", "Gestisci"])
+scelta = st.sidebar.radio("Vai a", ["Inserisci Dati", "Dashboard", "Gestisci Opzioni", "Gestione"])
 
 #######################################
 # 1. INSERISCI DATI
@@ -659,9 +651,6 @@ if scelta == "Inserisci Dati":
                                         value="", 
                                         placeholder="Lascia vuoto se non disponibile")
 
-        # Tempo Previsto
-        tempo_previsto = st.number_input("Tempo Previsto (giorni)", min_value=0, step=1, value=0)
-
         submitted = st.form_submit_button("Inserisci Progetto")
         if submitted:
             if not cliente.strip():
@@ -692,13 +681,12 @@ elif scelta == "Dashboard":
         st.info("Nessun progetto disponibile nel DB.")
     else:
         # Creiamo le Tab
-        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        tab1, tab2, tab3, tab4, tab5 = st.tabs([
             "Panoramica",
             "Carico Proiettato / Previsione",
             "Bonus e Premi",
             "Backup",
-            "Classifica",
-            "Gestione"
+            "Classifica"
         ])
 
         ################################
@@ -811,52 +799,13 @@ elif scelta == "Dashboard":
         with tab2:
             st.subheader("Progetti che si chiuderanno nei prossimi giorni/settimane")
             st.write("""
-                Escludiamo i progetti che hanno tempo_previsto=0 (non impostato).
+                Escludiamo i progetti che non hanno tempo_previsto impostato.
                 Calcoliamo la data di fine calcolata = data_inizio + tempo_previsto (giorni).
             """)
 
-            # In carica_dati_completo() abbiamo convertito tempo_previsto in int
-            df_ok = df[(df['tempo_previsto'].notna()) & (df['tempo_previsto'] > 0)]
-            df_ok['fine_calcolata'] = pd.to_datetime(df_ok['data_inizio'], errors='coerce') + \
-                                      pd.to_timedelta(df_ok['tempo_previsto'], unit='D')
-
-            df_incorso = df_ok[df_ok['stato_progetto'] == 'In corso'].copy()
-
-            st.subheader("Mostriamo i Progetti In Corso con tempo_previsto > 0")
-            st.dataframe(df_incorso[['cliente','stato_progetto','data_inizio','tempo_previsto','fine_calcolata','sales_recruiter']])
-
-            st.write("**Vuoi vedere quali progetti si chiuderanno entro X giorni da oggi?**")
-            orizzonte_giorni = st.number_input("Seleziona i giorni di orizzonte", value=14, min_value=1)
-            today = datetime.today()
-            df_prossimi = df_incorso[df_incorso['fine_calcolata'] <= (today + timedelta(days=orizzonte_giorni))]
-            if not df_prossimi.empty:
-                st.info(f"Progetti in corso che si chiuderanno entro {orizzonte_giorni} giorni:")
-                st.dataframe(df_prossimi[['cliente','sales_recruiter','fine_calcolata']])
-                
-                st.subheader("Recruiter che si libereranno in questo orizzonte")
-                closings = df_prossimi.groupby('sales_recruiter').size().reset_index(name='progetti_che_chiudono')
-                df_capacity = carica_recruiters_capacity()
-                df_attivi = df[df['stato_progetto'].isin(["In corso","Bloccato"])]
-                attivi_count = df_attivi.groupby('sales_recruiter').size().reset_index(name='Progetti Attivi')
-
-                rec_df = df_capacity.merge(attivi_count, on='sales_recruiter', how='left').fillna(0)
-                rec_df['Progetti Attivi'] = rec_df['Progetti Attivi'].astype(int)
-                rec_df = rec_df.merge(closings, on='sales_recruiter', how='left').fillna(0)
-                rec_df['progetti_che_chiudono'] = rec_df['progetti_che_chiudono'].astype(int)
-
-                rec_df['Nuovi Attivi'] = rec_df['Progetti Attivi'] - rec_df['progetti_che_chiudono']
-                rec_df.loc[rec_df['Nuovi Attivi'] < 0, 'Nuovi Attivi'] = 0
-                rec_df['Capacità Disponibile'] = rec_df['capacity'] - rec_df['Nuovi Attivi']
-                rec_df.loc[rec_df['Capacità Disponibile'] < 0, 'Capacità Disponibile'] = 0
-
-                st.dataframe(rec_df[['sales_recruiter','capacity','Progetti Attivi','progetti_che_chiudono','Nuovi Attivi','Capacità Disponibile']])
-                st.write("""
-                    Da questa tabella vedi quanti progetti chiudono per ogni recruiter 
-                    entro l'orizzonte selezionato, 
-                    e di conseguenza la nuova 'Capacità Disponibile' calcolata.
-                """)
-            else:
-                st.info("Nessun progetto in corso si chiuderà in questo orizzonte.")
+            # Supponendo che 'tempo_previsto' sia gestito altrove o omesso
+            # Se non esiste 'tempo_previsto', questa sezione potrebbe necessitare ulteriori adattamenti
+            st.info("La funzionalità 'Carico Proiettato / Previsione' non è stata implementata.")
 
         ################################
         # TAB 3: Bonus e Premi
@@ -1036,44 +985,44 @@ elif scelta == "Dashboard":
                 - **Grey:** Altri punteggi  
                 """)
 
-            ################################
-            # Grafici nella Classifica
-            ################################
-            st.subheader("Grafici della Classifica")
+                ################################
+                # Grafici nella Classifica
+                ################################
+                st.subheader("Grafici della Classifica")
 
-            # **Tempo Medio per Recruiter**
-            st.markdown("**1) Tempo Medio per Recruiter**")
-            df_comp = df_leader_filtered[
-                (df_leader_filtered['stato_progetto'] == 'Completato') &
-                (df_leader_filtered['data_inizio_dt'] >= pd.Timestamp(start_date_leader)) &
-                (df_leader_filtered['data_inizio_dt'] <= pd.Timestamp(end_date_leader))
-            ].copy()
-            veloce = df_comp.groupby('sales_recruiter')['tempo_totale'].mean().reset_index()
-            veloce['tempo_totale'] = veloce['tempo_totale'].fillna(0)
-            veloce = veloce.sort_values(by='tempo_totale', ascending=True)
-            if veloce.empty:
-                st.info("Nessun progetto completato per calcolare la velocità.")
-            else:
-                fig2, ax2 = plt.subplots(figsize=(8,6))
-                ax2.bar(veloce['sales_recruiter'], veloce['tempo_totale'], color='#636EFA')  # Colore simile al grafico avvicinamento
-                ax2.set_title("Tempo Medio (giorni) - Più basso = più veloce")
-                ax2.set_xlabel("Recruiter")
-                ax2.set_ylabel("Tempo Medio (giorni)")
-                plt.xticks(rotation=45, ha='right')
-                st.pyplot(fig2)
+                # **Tempo Medio per Recruiter**
+                st.markdown("**1) Tempo Medio per Recruiter**")
+                df_comp = df_leader_filtered[
+                    (df_leader_filtered['stato_progetto'] == 'Completato') &
+                    (df_leader_filtered['data_inizio_dt'] >= pd.Timestamp(start_date_leader)) &
+                    (df_leader_filtered['data_inizio_dt'] <= pd.Timestamp(end_date_leader))
+                ].copy()
+                veloce = df_comp.groupby('sales_recruiter')['tempo_totale'].mean().reset_index()
+                veloce['tempo_totale'] = veloce['tempo_totale'].fillna(0)
+                veloce = veloce.sort_values(by='tempo_totale', ascending=True)
+                if veloce.empty:
+                    st.info("Nessun progetto completato per calcolare la velocità.")
+                else:
+                    fig2, ax2 = plt.subplots(figsize=(8,6))
+                    ax2.bar(veloce['sales_recruiter'], veloce['tempo_totale'], color='#636EFA')  # Colore simile al grafico avvicinamento
+                    ax2.set_title("Tempo Medio (giorni) - Più basso = più veloce")
+                    ax2.set_xlabel("Recruiter")
+                    ax2.set_ylabel("Tempo Medio (giorni)")
+                    plt.xticks(rotation=45, ha='right')
+                    st.pyplot(fig2)
 
-            # **Bonus Totale per Recruiter**
-            st.markdown("**2) Bonus Totale per Recruiter**")
-            if not leaderboard_df.empty:
-                fig3, ax3 = plt.subplots(figsize=(8,6))
-                ax3.bar(leaderboard_df['sales_recruiter'], leaderboard_df['punteggio'], color='#EF553B')  # Colore simile al grafico avvicinamento
-                ax3.set_title("Bonus Totale Ottenuto")
-                ax3.set_xlabel("Recruiter")
-                ax3.set_ylabel("Bonus Totale (€)")
-                plt.xticks(rotation=45, ha='right')
-                st.pyplot(fig3)
-            else:
-                st.info("Nessun bonus calcolato.")
+                # **Bonus Totale per Recruiter**
+                st.markdown("**2) Bonus Totale per Recruiter**")
+                if not leaderboard_df.empty:
+                    fig3, ax3 = plt.subplots(figsize=(8,6))
+                    ax3.bar(leaderboard_df['sales_recruiter'], leaderboard_df['punteggio'], color='#EF553B')  # Colore simile al grafico avvicinamento
+                    ax3.set_title("Bonus Totale Ottenuto")
+                    ax3.set_xlabel("Recruiter")
+                    ax3.set_ylabel("Bonus Totale (€)")
+                    plt.xticks(rotation=45, ha='right')
+                    st.pyplot(fig3)
+                else:
+                    st.info("Nessun bonus calcolato.")
 
 #######################################
 # 3. GESTISCI OPZIONI
@@ -1087,14 +1036,14 @@ elif scelta == "Gestisci Opzioni":
     """)
 
 #######################################
-# 4. GESTISCI
+# 4. GESTIONE AVANZATA: Gestione
 #######################################
-elif scelta == "Gestisci":
+elif scelta == "Gestione":
     st.header("Gestione Avanzata")
-
-    # Creiamo le Tab per Riunioni, Referrals, Formazione, Retention
-    tab_riunioni, tab_referrals, tab_formazione, tab_retention = st.tabs(["Riunioni", "Referrals", "Formazione", "Retention"])
-
+    
+    # Creiamo le Tab per Riunioni, Referrals, Formazione, Candidati (Retention)
+    tab_riunioni, tab_referrals, tab_formazione, tab_candidati = st.tabs(["Riunioni", "Referrals", "Formazione", "Retention"])
+    
     ###################################
     # TAB: Riunioni
     ###################################
@@ -1333,11 +1282,11 @@ elif scelta == "Gestisci":
     ###################################
     # TAB: Retention
     ###################################
-    with tab_retention:
+    with tab_candidati:
         st.subheader("Gestione Retention dei Candidati")
         
-        # Form per inserire una nuova retention
-        with st.form("form_inserisci_retention"):
+        # Form per inserire un nuovo candidato
+        with st.form("form_inserisci_candidato"):
             progetti = carica_dati_completo()
             progetti_completati = progetti[progetti['stato_progetto'] == 'Completato']
             progetto_nomi = progetti_completati['cliente'].tolist()
@@ -1348,24 +1297,40 @@ elif scelta == "Gestisci":
                     progetto_id = p.id
                     break
             
-            data_assunzione = st.date_input("Data Assunzione", value=datetime.today())
-            data_cessazione = st.date_input("Data Cessazione (lascia vuoto se ancora in posizione)")
+            recruiters = carica_recruiters()
+            recruiter_nomi = [r['nome'] for r in recruiters]
+            recruiter_sel = st.selectbox("Recruiter", recruiter_nomi)
+            recruiter_id = None
+            for r in recruiters:
+                if r['nome'] == recruiter_sel:
+                    recruiter_id = r['id']
+                    break
             
-            submit_retention = st.form_submit_button("Inserisci Retention")
-            if submit_retention:
-                inserisci_retention(progetto_id, data_assunzione, data_cessazione if data_cessazione != datetime.today().date() else None)
+            candidato_nome = st.text_input("Nome Candidato")
+            data_inserimento = st.date_input("Data Inserimento", value=datetime.today())
+            data_dimissioni = st.date_input("Data Dimissioni (lascia vuoto se ancora in posizione)", value=None, key="data_dimissioni")
+            
+            submit_candidato = st.form_submit_button("Inserisci Candidato")
+            if submit_candidato:
+                if not candidato_nome.strip():
+                    st.error("Il campo 'Nome Candidato' è obbligatorio!")
+                else:
+                    data_dimissioni_sql = data_dimissioni if data_dimissioni else None
+                    inserisci_candidato(progetto_id, recruiter_id, candidato_nome, data_inserimento, data_dimissioni_sql)
         
         st.write("---")
-        st.subheader("Modifica / Elimina Retention Esistenti")
-        retention = carica_retention()
-        if retention:
-            for ret in retention:
-                ret_id = ret['id']
-                progetto_id = ret['progetto_id']
-                data_assunzione = ret['data_assunzione']
-                data_cessazione = ret['data_cessazione']
+        st.subheader("Modifica / Elimina Candidati Esistenti")
+        candidati = carica_candidati()
+        if candidati:
+            for candidato in candidati:
+                cand_id = candidato['id']
+                progetto_id = candidato['progetto_id']
+                recruiter_id = candidato['recruiter_id']
+                candidato_nome = candidato['candidato_nome']
+                data_inserimento = candidato['data_inserimento']
+                data_dimissioni = candidato['data_dimissioni']
                 
-                with st.expander(f"Retention ID {ret_id} - Progetto ID {progetto_id}"):
+                with st.expander(f"Candidato ID {cand_id} - {candidato_nome}"):
                     progetti = carica_dati_completo()
                     progetto = progetti[progetti['id'] == progetto_id]
                     if not progetto.empty:
@@ -1379,7 +1344,7 @@ elif scelta == "Gestisci":
                         "Progetto", 
                         progetto_nomi, 
                         index=progetto_nomi.index(progetto_nome) if progetto_nome in progetto_nomi else 0,
-                        key=f"progetto_retention_{ret_id}"
+                        key=f"progetto_candidato_{cand_id}"
                     )
                     progetto_id_new = None
                     for p in progetti_completati.itertuples():
@@ -1387,30 +1352,48 @@ elif scelta == "Gestisci":
                             progetto_id_new = p.id
                             break
 
-                    data_assunzione_new = st.date_input(
-                        "Data Assunzione", 
-                        value=datetime.strptime(data_assunzione, '%Y-%m-%d').date(), 
-                        key=f"data_assunzione_retention_{ret_id}"
+                    recruiters = carica_recruiters()
+                    recruiter_nomi = [r['nome'] for r in recruiters]
+                    recruiter_sel = st.selectbox(
+                        "Recruiter", 
+                        recruiter_nomi, 
+                        index=recruiter_nomi.index(next(r['nome'] for r in recruiters if r['id'] == recruiter_id)),
+                        key=f"recruiter_candidato_{cand_id}"
                     )
-                    data_cessazione_new = st.date_input(
-                        "Data Cessazione", 
-                        value=datetime.strptime(data_cessazione, '%Y-%m-%d').date() if data_cessazione else datetime.today().date(),
-                        key=f"data_cessazione_retention_{ret_id}"
+                    recruiter_id_new = None
+                    for r in recruiters:
+                        if r['nome'] == recruiter_sel:
+                            recruiter_id_new = r['id']
+                            break
+
+                    candidato_nome_new = st.text_input("Nome Candidato", value=candidato_nome, key=f"candidato_nome_{cand_id}")
+                    data_inserimento_new = st.date_input(
+                        "Data Inserimento", 
+                        value=datetime.strptime(data_inserimento, '%Y-%m-%d').date(), 
+                        key=f"data_inserimento_candidato_{cand_id}"
+                    )
+                    data_dimissioni_new = st.date_input(
+                        "Data Dimissioni (lascia vuoto se ancora in posizione)", 
+                        value=datetime.strptime(data_dimissioni, '%Y-%m-%d').date() if data_dimissioni else None,
+                        key=f"data_dimissioni_candidato_{cand_id}"
                     )
                     
                     col1, col2 = st.columns([1,1])
                     with col1:
-                        btn_mod_ret = st.button("Modifica", key=f"mod_retention_{ret_id}")
+                        btn_mod_cand = st.button("Modifica", key=f"mod_candidato_{cand_id}")
                     with col2:
-                        btn_del_ret = st.button("Elimina", key=f"del_retention_{ret_id}")
+                        btn_del_cand = st.button("Elimina", key=f"del_candidato_{cand_id}")
                     
-                    if btn_mod_ret:
-                        modifica_retention(ret_id, progetto_id_new, data_assunzione_new, data_cessazione_new)
+                    if btn_mod_cand:
+                        if not candidato_nome_new.strip():
+                            st.error("Il campo 'Nome Candidato' è obbligatorio!")
+                        else:
+                            modifica_candidato(cand_id, progetto_id_new, recruiter_id_new, candidato_nome_new, data_inserimento_new, data_dimissioni_new)
                     
-                    if btn_del_ret:
-                        elimina_retention(ret_id)
+                    if btn_del_cand:
+                        elimina_candidato(cand_id)
         else:
-            st.info("Nessuna retention presente nel DB.")
+            st.info("Nessun candidato presente nel DB.")
 
 #######################################
 # FINE DEL CODICE
