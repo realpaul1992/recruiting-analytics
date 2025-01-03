@@ -1,17 +1,15 @@
 # pages/manage_options.py
 
 import streamlit as st
-import pandas as pd
 import pymysql
-from datetime import datetime
+import pandas as pd
 
+####################################
+# Funzione di Connessione
+####################################
 def get_connection():
-    """
-    Ritorna una connessione MySQL usando pymysql.
-    Utilizza le variabili d'ambiente definite in Streamlit Secrets.
-    """
     try:
-        connection = pymysql.connect(
+        return pymysql.connect(
             host=st.secrets["DB_HOST"],
             port=int(st.secrets["DB_PORT"]),
             user=st.secrets["DB_USER"],
@@ -19,7 +17,6 @@ def get_connection():
             database=st.secrets["DB_NAME"],
             cursorclass=pymysql.cursors.DictCursor  # Per avere dizionari anziché tuple
         )
-        return connection
     except pymysql.err.OperationalError as e:
         st.error("Impossibile connettersi al database. Controlla le credenziali e l'accessibilità del database.")
         st.stop()
@@ -27,16 +24,119 @@ def get_connection():
         st.error(f"Errore inaspettato: {e}")
         st.stop()
 
-def carica_progetti():
+####################################
+# GESTIONE SETTORI
+####################################
+def carica_settori():
     conn = get_connection()
     try:
         with conn.cursor() as c:
-            c.execute("SELECT id, cliente FROM progetti ORDER BY cliente ASC")
-            progetti = c.fetchall()
+            c.execute("SELECT id, nome FROM settori ORDER BY nome ASC")
+            settori = c.fetchall()
     finally:
         conn.close()
-    return progetti
+    return settori
 
+def inserisci_settore(nome):
+    conn = get_connection()
+    try:
+        with conn.cursor() as c:
+            c.execute("INSERT INTO settori (nome) VALUES (%s)", (nome.strip(),))
+        conn.commit()
+        st.success(f"Settore '{nome}' inserito con successo!")
+    except pymysql.IntegrityError:
+        st.error(f"Settore '{nome}' già esistente.")
+    except Exception as e:
+        st.error(f"Errore nell'inserimento del settore: {e}")
+    finally:
+        conn.close()
+
+def modifica_settore(settore_id, nuovo_nome):
+    conn = get_connection()
+    try:
+        with conn.cursor() as c:
+            c.execute("UPDATE settori SET nome = %s WHERE id = %s", (nuovo_nome.strip(), settore_id))
+        conn.commit()
+        st.success(f"Settore aggiornato a '{nuovo_nome}'!")
+    except pymysql.IntegrityError:
+        st.error(f"Settore '{nuovo_nome}' già esistente.")
+    except Exception as e:
+        st.error(f"Errore nell'aggiornamento del settore: {e}")
+    finally:
+        conn.close()
+
+def elimina_settore(settore_id):
+    conn = get_connection()
+    try:
+        with conn.cursor() as c:
+            c.execute("DELETE FROM settori WHERE id = %s", (settore_id,))
+        conn.commit()
+        st.success("Settore eliminato con successo!")
+    except pymysql.IntegrityError as e:
+        st.error(f"Errore nell'eliminazione del settore: {e}")
+    except Exception as e:
+        st.error(f"Errore nell'eliminazione del settore: {e}")
+    finally:
+        conn.close()
+
+####################################
+# GESTIONE PM
+####################################
+def carica_pm():
+    conn = get_connection()
+    try:
+        with conn.cursor() as c:
+            c.execute("SELECT id, nome FROM project_managers ORDER BY nome ASC")
+            pm = c.fetchall()
+    finally:
+        conn.close()
+    return pm
+
+def inserisci_pm(nome):
+    conn = get_connection()
+    try:
+        with conn.cursor() as c:
+            c.execute("INSERT INTO project_managers (nome) VALUES (%s)", (nome.strip(),))
+        conn.commit()
+        st.success(f"Project Manager '{nome}' inserito con successo!")
+    except pymysql.IntegrityError:
+        st.error(f"Project Manager '{nome}' già esistente.")
+    except Exception as e:
+        st.error(f"Errore nell'inserimento del Project Manager: {e}")
+    finally:
+        conn.close()
+
+def modifica_pm(pm_id, nuovo_nome):
+    conn = get_connection()
+    try:
+        with conn.cursor() as c:
+            c.execute("UPDATE project_managers SET nome = %s WHERE id = %s", (nuovo_nome.strip(), pm_id))
+        conn.commit()
+        st.success(f"Project Manager aggiornato a '{nuovo_nome}'!")
+    except pymysql.IntegrityError:
+        st.error(f"Project Manager '{nuovo_nome}' già esistente.")
+    except Exception as e:
+        st.error(f"Errore nell'aggiornamento del Project Manager: {e}")
+    finally:
+        conn.close()
+
+def elimina_pm(pm_id):
+    conn = get_connection()
+    try:
+        with conn.cursor() as c:
+            c.execute("DELETE FROM project_managers WHERE id = %s", (pm_id,))
+        conn.commit()
+        st.success("Project Manager eliminato con successo!")
+    except pymysql.IntegrityError as e:
+        st.error(f"Errore nell'eliminazione del PM: {e}")
+    except Exception as e:
+        st.error(f"Errore nell'eliminazione del PM: {e}")
+    finally:
+        conn.close()
+
+####################################
+# GESTIONE RECRUITERS
+####################################
 def carica_recruiters():
     conn = get_connection()
     try:
@@ -47,317 +147,256 @@ def carica_recruiters():
         conn.close()
     return recruiters
 
-def carica_candidati():
+def inserisci_recruiter(nome):
     conn = get_connection()
     try:
         with conn.cursor() as c:
-            c.execute("""
-                SELECT 
-                    c.id,
-                    c.candidato_nome,
-                    c.data_inserimento,
-                    c.data_placement,
-                    c.data_dimissioni,
-                    c.progetto_id,
-                    r.nome AS recruiter_nome,
-                    p.cliente AS progetto_cliente
-                FROM candidati c
-                JOIN recruiters r ON c.recruiter_id = r.id
-                JOIN progetti p ON c.progetto_id = p.id
-                ORDER BY c.candidato_nome ASC
-            """)
-            candidati = c.fetchall()
-    finally:
-        conn.close()
-    return candidati
-
-def inserisci_candidato(recruiter_id, candidato_nome, data_inserimento, data_placement, data_dimissioni, progetto_id):
-    """
-    Inserisce un nuovo candidato in MySQL.
-    """
-    conn = get_connection()
-    try:
-        with conn.cursor() as c:
-            query = """
-                INSERT INTO candidati (
-                    recruiter_id,
-                    candidato_nome,
-                    data_inserimento,
-                    data_placement,
-                    data_dimissioni,
-                    progetto_id
-                )
-                VALUES (%s, %s, %s, %s, %s, %s)
-            """
-            c.execute(query, (
-                recruiter_id,
-                candidato_nome,
-                data_inserimento,
-                data_placement,
-                data_dimissioni,
-                progetto_id
-            ))
+            c.execute("INSERT INTO recruiters (nome) VALUES (%s)", (nome.strip(),))
         conn.commit()
-    except pymysql.Error as e:
-        st.error(f"Errore nell'inserimento del candidato: {e}")
+        st.success(f"Recruiter '{nome}' inserito con successo!")
+    except pymysql.IntegrityError:
+        st.error(f"Recruiter '{nome}' già esistente.")
+    except Exception as e:
+        st.error(f"Errore nell'inserimento del Recruiter: {e}")
     finally:
         conn.close()
 
-def aggiorna_candidato(candidato_id, recruiter_id, candidato_nome, data_inserimento, data_placement, data_dimissioni, progetto_id):
+def modifica_recruiter(rec_id, nuovo_nome):
+    conn = get_connection()
+    try:
+        with conn.cursor() as c:
+            c.execute("UPDATE recruiters SET nome = %s WHERE id = %s", (nuovo_nome.strip(), rec_id))
+        conn.commit()
+        st.success(f"Recruiter aggiornato a '{nuovo_nome}'!")
+    except pymysql.IntegrityError:
+        st.error(f"Recruiter '{nuovo_nome}' già esistente.")
+    except Exception as e:
+        st.error(f"Errore nell'aggiornamento del Recruiter: {e}")
+    finally:
+        conn.close()
+
+def elimina_recruiter(rec_id):
+    conn = get_connection()
+    try:
+        with conn.cursor() as c:
+            c.execute("DELETE FROM recruiters WHERE id = %s", (rec_id,))
+        conn.commit()
+        st.success("Recruiter eliminato con successo!")
+    except pymysql.IntegrityError as e:
+        st.error(f"Errore nell'eliminazione del Recruiter: {e}")
+    except Exception as e:
+        st.error(f"Errore nell'eliminazione del Recruiter: {e}")
+    finally:
+        conn.close()
+
+####################################
+# GESTIONE CAPACITA' PER RECRUITER
+####################################
+def carica_capacity_recruiter():
     """
-    Aggiorna un candidato esistente in MySQL.
+    Restituisce [(recruiter_id, recruiter_nome, capacity_max), ...]
     """
     conn = get_connection()
     try:
         with conn.cursor() as c:
-            query = """
-                UPDATE candidati
-                SET recruiter_id = %s,
-                    candidato_nome = %s,
-                    data_inserimento = %s,
-                    data_placement = %s,
-                    data_dimissioni = %s,
-                    progetto_id = %s
-                WHERE id = %s
-            """
-            c.execute(query, (
-                recruiter_id,
-                candidato_nome,
-                data_inserimento,
-                data_placement,
-                data_dimissioni,
-                progetto_id,
-                candidato_id
-            ))
-        conn.commit()
-    except pymysql.Error as e:
-        st.error(f"Errore nell'aggiornamento del candidato: {e}")
+            c.execute('''
+                SELECT r.id, r.nome,
+                       IFNULL(rc.capacity_max, 5) AS capacity_max
+                FROM recruiters r
+                LEFT JOIN recruiter_capacity rc ON r.id = rc.recruiter_id
+                ORDER BY r.nome
+            ''')
+            rows = c.fetchall()
     finally:
         conn.close()
+    return rows
 
-def elimina_candidato(candidato_id):
-    """
-    Elimina un candidato da MySQL.
-    """
+def aggiorna_capacity_recruiter(recruiter_id, nuova_capacity):
     conn = get_connection()
     try:
         with conn.cursor() as c:
-            c.execute("DELETE FROM candidati WHERE id = %s", (candidato_id,))
+            c.execute("UPDATE recruiter_capacity SET capacity_max = %s WHERE recruiter_id = %s", (nuova_capacity, recruiter_id))
+            if c.rowcount == 0:
+                c.execute("INSERT INTO recruiter_capacity (recruiter_id, capacity_max) VALUES (%s, %s)", (recruiter_id, nuova_capacity))
         conn.commit()
-    except pymysql.Error as e:
-        st.error(f"Errore nell'eliminazione del candidato: {e}")
+        st.success(f"Capacità per Recruiter ID {recruiter_id} aggiornata a {nuova_capacity}.")
+    except Exception as e:
+        st.error(f"Errore nell'aggiornamento della capacità: {e}")
     finally:
         conn.close()
 
-def carica_progetti_dict():
-    progetti = carica_progetti()
-    progetti_dict = {p['cliente']: p['id'] for p in progetti}
-    return progetti_dict
-
-def carica_recruiters_dict():
-    recruiters = carica_recruiters()
-    recruiters_dict = {r['nome']: r['id'] for r in recruiters}
-    return recruiters_dict
-
-def parse_date_input(date_str):
-    """Converti una stringa di data in formato 'GG/MM/AAAA' a 'YYYY-MM-DD'."""
-    if not date_str.strip():
-        return None
-    try:
-        return datetime.strptime(date_str.strip(), '%d/%m/%Y').strftime('%Y-%m-%d')
-    except ValueError:
-        st.error("Formato data non valido. Usa GG/MM/AAAA.")
-        st.stop()
+############################
+# LAYOUT DELLA PAGINA
+############################
 
 st.title("Gestione Opzioni")
 
 # Carica dati
-progetti = carica_progetti()
+settori = carica_settori()
+pms = carica_pm()
 recruiters = carica_recruiters()
-candidati = carica_candidati()
 
 # Crea dizionari per mapping
-progetti_dict = carica_progetti_dict()
-recruiters_dict = carica_recruiters_dict()
+settori_dict = {s['nome']: s['id'] for s in settori}
+pms_dict = {pm['nome']: pm['id'] for pm in pms}
+recruiters_dict = {r['nome']: r['id'] for r in recruiters}
 
 # Creiamo le Tab
-tab1, tab2, tab3, tab4 = st.tabs(["Settori", "Project Managers", "Recruiters", "Candidati"])
+tab1, tab2, tab3, tab4 = st.tabs(["Settori", "Project Managers", "Recruiters", "Capacità Recruiter"])
 
-################################
-# TAB 1: Settori
-################################
+###################################
+# TAB 1: Gestione Settori
+###################################
 with tab1:
-    st.header("Gestione Settori")
-    st.write("Funzionalità da implementare.")
-    # Puoi implementare la gestione dei settori qui, simile a come gestisci i candidati.
+    st.subheader("Gestione Settori")
 
-################################
-# TAB 2: Project Managers
-################################
-with tab2:
-    st.header("Gestione Project Managers")
-    st.write("Funzionalità da implementare.")
-    # Puoi implementare la gestione dei Project Managers qui.
-
-################################
-# TAB 3: Recruiters
-################################
-with tab3:
-    st.header("Gestione Recruiters")
-    st.write("Funzionalità da implementare.")
-    # Puoi implementare la gestione dei Recruiters qui.
-
-################################
-# TAB 4: Candidati
-################################
-with tab4:
-    st.header("Gestione Candidati")
-
-    # Sottotab: Inserisci o Modifica
-    subtab1, subtab2 = st.tabs(["Inserisci Candidato", "Modifica Candidato"])
-
-    # Sottotab 1: Inserisci Candidato
-    with subtab1:
-        st.subheader("Inserisci Nuovo Candidato")
-        with st.form("form_inserisci_candidato"):
-            # Recruiter
-            recruiters_nomi = list(recruiters_dict.keys())
-            recruiter_sel = st.selectbox("Recruiter", recruiters_nomi)
-            recruiter_id = recruiters_dict.get(recruiter_sel)
-
-            # Nome Candidato
-            candidato_nome = st.text_input("Nome Candidato")
-
-            # Data di Inserimento
-            data_inserimento_str = st.text_input("Data di Inserimento (GG/MM/AAAA)", 
-                                                value="", 
-                                                placeholder="Lascia vuoto se non disponibile")
-
-            # Data di Placement
-            data_placement_str = st.text_input("Data di Placement (GG/MM/AAAA)", 
-                                               value="", 
-                                               placeholder="Lascia vuoto se non disponibile")
-
-            # Data di Dimissioni
-            data_dimissioni_str = st.text_input("Data di Dimissioni (GG/MM/AAAA)", 
-                                                value="", 
-                                                placeholder="Lascia vuoto se non disponibile")
-
-            # Seleziona Progetto
-            progetti_nomi = list(progetti_dict.keys())
-            progetto_sel = st.selectbox("Seleziona Progetto", progetti_nomi)
-            progetto_id = progetti_dict.get(progetto_sel)
-
-            # Pulsante di Submit
-            submitted = st.form_submit_button("Inserisci Candidato")
-            if submitted:
-                if not candidato_nome.strip():
-                    st.error("Il campo 'Nome Candidato' è obbligatorio!")
-                    st.stop()
+    with st.form("form_inserisci_settore"):
+        nuovo_settore = st.text_input("Nome nuovo Settore")
+        sub_settore = st.form_submit_button("Aggiungi Settore")
+        if sub_settore:
+            if nuovo_settore.strip():
+                inserisci_settore(nuovo_settore)
+                settori = carica_settori()  # Ricarica i settori aggiornati
+                settori_dict = {s['nome']: s['id'] for s in settori}  # Aggiorna il dizionario
+            else:
+                st.error("Il nome del settore non può essere vuoto.")
+    
+    st.write("---")
+    st.subheader("Modifica / Elimina Settori Esistenti")
+    settori = carica_settori()
+    if settori:
+        for s in settori:
+            s_id, s_nome = s['id'], s['nome']
+            with st.expander(f"Settore ID {s_id} - {s_nome}", expanded=False):
+                col1, col2 = st.columns([2,1])
+                with col1:
+                    nuovo_nome = st.text_input(f"Nuovo nome per '{s_nome}'", value=s_nome)
+                with col2:
+                    btn_mod = st.button("Modifica", key=f"mod_settore_{s_id}")
+                    btn_del = st.button("Elimina", key=f"del_settore_{s_id}")
                 
-                # Parsing delle date
-                data_inserimento_sql = parse_date_input(data_inserimento_str)
-                data_placement_sql = parse_date_input(data_placement_str)
-                data_dimissioni_sql = parse_date_input(data_dimissioni_str)
-
-                inserisci_candidato(
-                    recruiter_id=recruiter_id,
-                    candidato_nome=candidato_nome.strip(),
-                    data_inserimento=data_inserimento_sql,
-                    data_placement=data_placement_sql,
-                    data_dimissioni=data_dimissioni_sql,
-                    progetto_id=progetto_id
-                )
-                st.success("Candidato inserito con successo!")
-
-    # Sottotab 2: Modifica Candidato
-    with subtab2:
-        st.subheader("Modifica Candidato Esistente")
-        if not candidati:
-            st.info("Nessun candidato disponibile da modificare.")
-        else:
-            # Seleziona Candidato da Modificare
-            candidati_nomi = [f"{c['candidato_nome']} ({c['recruiter_nome']})" for c in candidati]
-            candidato_sel = st.selectbox("Seleziona Candidato da Modificare", candidati_nomi)
-            candidato_index = candidati_nomi.index(candidato_sel)
-            candidato = candidati[candidato_index]
-
-            with st.form("form_modifica_candidato"):
-                # Recruiter
-                recruiters_nomi = list(recruiters_dict.keys())
-                recruiter_sel_mod = st.selectbox("Recruiter", recruiters_nomi, index=recruiters_nomi.index(candidato['recruiter_nome']))
-                recruiter_id_mod = recruiters_dict.get(recruiter_sel_mod)
-
-                # Nome Candidato
-                candidato_nome_mod = st.text_input("Nome Candidato", value=candidato['candidato_nome'])
-
-                # Data di Inserimento
-                if pd.notna(candidato['data_inserimento']):
-                    data_inserimento_val = candidato['data_inserimento'].strftime('%d/%m/%Y')
-                else:
-                    data_inserimento_val = ""
-                data_inserimento_mod = st.text_input("Data di Inserimento (GG/MM/AAAA)", 
-                                                    value=data_inserimento_val, 
-                                                    placeholder="Lascia vuoto se non disponibile")
-
-                # Data di Placement
-                if pd.notna(candidato['data_placement']):
-                    data_placement_val = candidato['data_placement'].strftime('%d/%m/%Y')
-                else:
-                    data_placement_val = ""
-                data_placement_mod = st.text_input("Data di Placement (GG/MM/AAAA)", 
-                                                   value=data_placement_val, 
-                                                   placeholder="Lascia vuoto se non disponibile")
-
-                # Data di Dimissioni
-                if pd.notna(candidato['data_dimissioni']):
-                    data_dimissioni_val = candidato['data_dimissioni'].strftime('%d/%m/%Y')
-                else:
-                    data_dimissioni_val = ""
-                data_dimissioni_mod = st.text_input("Data di Dimissioni (GG/MM/AAAA)", 
-                                                    value=data_dimissioni_val, 
-                                                    placeholder="Lascia vuoto se non disponibile")
-
-                # Seleziona Progetto
-                progetti_nomi_mod = list(progetti_dict.keys())
-                progetto_sel_mod = st.selectbox("Seleziona Progetto", progetti_nomi_mod, index=progetti_nomi_mod.index(candidato['progetto_cliente']))
-                progetto_id_mod = progetti_dict.get(progetto_sel_mod)
-
-                # Pulsante di Submit
-                submitted_mod = st.form_submit_button("Aggiorna Candidato")
-                if submitted_mod:
-                    if not candidato_nome_mod.strip():
-                        st.error("Il campo 'Nome Candidato' è obbligatorio!")
-                        st.stop()
-                    
-                    # Parsing delle date
-                    data_inserimento_sql_mod = parse_date_input(data_inserimento_mod)
-                    data_placement_sql_mod = parse_date_input(data_placement_mod)
-                    data_dimissioni_sql_mod = parse_date_input(data_dimissioni_mod)
-
-                    aggiorna_candidato(
-                        candidato_id=candidato['id'],
-                        recruiter_id=recruiter_id_mod,
-                        candidato_nome=candidato_nome_mod.strip(),
-                        data_inserimento=data_inserimento_sql_mod,
-                        data_placement=data_placement_sql_mod,
-                        data_dimissioni=data_dimissioni_sql_mod,
-                        progetto_id=progetto_id_mod
-                    )
-                    st.success("Candidato aggiornato con successo!")
-
-            # Elimina Candidato
-            st.markdown("---")
-            st.subheader("Elimina Candidato")
-            with st.form("form_elimina_candidato"):
-                conferma = st.checkbox("Confermi di voler eliminare questo candidato?", key="conferma_elimina")
-                submitted_del = st.form_submit_button("Elimina Candidato")
-                if submitted_del:
-                    if conferma:
-                        elimina_candidato(candidato['id'])
-                        st.success("Candidato eliminato con successo!")
-                        # Aggiorna la lista dei candidati
-                        candidati = carica_candidati()
-                        st.experimental_rerun()
+                if btn_mod:
+                    if nuovo_nome.strip():
+                        modifica_settore(s_id, nuovo_nome.strip())
+                        settori = carica_settori()  # Ricarica i settori aggiornati
+                        settori_dict = {s['nome']: s['id'] for s in settori}  # Aggiorna il dizionario
                     else:
-                        st.error("Devi confermare l'eliminazione del candidato.")
+                        st.error("Il nome non può essere vuoto.")
+                if btn_del:
+                    elimina_settore(s_id)
+                    settori = carica_settori()  # Ricarica i settori aggiornati
+                    settori_dict = {s['nome']: s['id'] for s in settori}  # Aggiorna il dizionario
+    else:
+        st.info("Nessun settore presente nel DB.")
+
+###################################
+# TAB 2: Gestione Project Managers
+###################################
+with tab2:
+    st.subheader("Gestione Project Managers")
+
+    with st.form("form_inserisci_pm"):
+        nuovo_pm = st.text_input("Nome nuovo Project Manager")
+        sub_pm = st.form_submit_button("Aggiungi Project Manager")
+        if sub_pm:
+            if nuovo_pm.strip():
+                inserisci_pm(nuovo_pm.strip())
+                pms = carica_pm()  # Ricarica i PM aggiornati
+                pms_dict = {pm['nome']: pm['id'] for pm in pms}  # Aggiorna il dizionario
+            else:
+                st.error("Il nome del Project Manager non può essere vuoto.")
+    
+    st.write("---")
+    st.subheader("Modifica / Elimina PM Esistenti")
+    pms = carica_pm()
+    if pms:
+        for pm in pms:
+            pm_id, pm_nome = pm['id'], pm['nome']
+            with st.expander(f"PM ID {pm_id} - {pm_nome}", expanded=False):
+                col1, col2 = st.columns([2,1])
+                with col1:
+                    nuovo_nome_pm = st.text_input(f"Nuovo nome per '{pm_nome}'", value=pm_nome)
+                with col2:
+                    btn_mod_pm = st.button("Modifica", key=f"mod_pm_{pm_id}")
+                    btn_del_pm = st.button("Elimina", key=f"del_pm_{pm_id}")
+                
+                if btn_mod_pm:
+                    if nuovo_nome_pm.strip():
+                        modifica_pm(pm_id, nuovo_nome_pm.strip())
+                        pms = carica_pm()  # Ricarica i PM aggiornati
+                        pms_dict = {pm['nome']: pm['id'] for pm in pms}  # Aggiorna il dizionario
+                    else:
+                        st.error("Il campo non può essere vuoto.")
+                if btn_del_pm:
+                    elimina_pm(pm_id)
+                    pms = carica_pm()  # Ricarica i PM aggiornati
+                    pms_dict = {pm['nome']: pm['id'] for pm in pms}  # Aggiorna il dizionario
+    else:
+        st.info("Nessun PM presente nel DB.")
+
+###################################
+# TAB 3: Gestione Recruiters
+###################################
+with tab3:
+    st.subheader("Gestione Recruiters")
+
+    with st.form("form_inserisci_recruiter"):
+        nuovo_rec = st.text_input("Nome nuovo Recruiter")
+        sub_rec = st.form_submit_button("Aggiungi Recruiter")
+        if sub_rec:
+            if nuovo_rec.strip():
+                inserisci_recruiter(nuovo_rec.strip())
+                recruiters = carica_recruiters()  # Ricarica i recruiters aggiornati
+                recruiters_dict = {r['nome']: r['id'] for r in recruiters}  # Aggiorna il dizionario
+            else:
+                st.error("Il nome del Recruiter non può essere vuoto.")
+    
+    st.write("---")
+    st.subheader("Modifica / Elimina Recruiters Esistenti")
+    recruiters = carica_recruiters()
+    if recruiters:
+        for r in recruiters:
+            rec_id, rec_nome = r['id'], r['nome']
+            with st.expander(f"Recruiter ID {rec_id} - {rec_nome}", expanded=False):
+                col1, col2 = st.columns([2,1])
+                with col1:
+                    nuovo_nome_rec = st.text_input(f"Nuovo nome per '{rec_nome}'", value=rec_nome)
+                with col2:
+                    btn_mod_rec = st.button("Modifica", key=f"mod_rec_{rec_id}")
+                    btn_del_rec = st.button("Elimina", key=f"del_rec_{rec_id}")
+                
+                if btn_mod_rec:
+                    if nuovo_nome_rec.strip():
+                        modifica_recruiter(rec_id, nuovo_nome_rec.strip())
+                        recruiters = carica_recruiters()  # Ricarica i recruiters aggiornati
+                        recruiters_dict = {r['nome']: r['id'] for r in recruiters}  # Aggiorna il dizionario
+                    else:
+                        st.error("Il campo non può essere vuoto.")
+                if btn_del_rec:
+                    elimina_recruiter(rec_id)
+                    recruiters = carica_recruiters()  # Ricarica i recruiters aggiornati
+                    recruiters_dict = {r['nome']: r['id'] for r in recruiters}  # Aggiorna il dizionario
+    else:
+        st.info("Nessun Recruiter presente nel DB.")
+
+###################################
+# TAB 4: Capacità Recruiter
+###################################
+with tab4:
+    st.subheader("Gestione Capacità per ogni Recruiter")
+
+    rows = carica_capacity_recruiter()
+    if not rows:
+        st.info("Nessun recruiter presente nel DB.")
+    else:
+        for rec in rows:
+            rec_id, rec_nome, cap_max = rec['id'], rec['nome'], rec['capacity_max']
+            with st.expander(f"Recruiter: {rec_nome} (ID: {rec_id}) - Capacità attuale: {cap_max}"):
+                with st.form(f"form_capacita_{rec_id}"):
+                    nuova_capacity = st.number_input(f"Nuova capacità per {rec_nome}",
+                                                     min_value=1, max_value=999,
+                                                     value=int(cap_max), step=1)
+                    btn_update = st.form_submit_button("Aggiorna Capacità")
+                    if btn_update:
+                        aggiorna_capacity_recruiter(rec_id, int(nuova_capacity))
+                        st.success(f"Capacità per {rec_nome} aggiornata a {nuova_capacity}.")
