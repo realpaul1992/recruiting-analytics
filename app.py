@@ -69,7 +69,7 @@ def carica_candidati():
     conn = get_connection()
     try:
         with conn.cursor() as c:
-            # Sostituire 'sales_recruiter_id' con la colonna corretta, ad esempio 'recruiter_id'
+            # Assicurati che la colonna sia 'recruiter_id' e non 'sales_recruiter_id'
             c.execute("SELECT id, recruiter_id, candidato_nome, data_inserimento, data_placement, data_dimissioni FROM candidati")
             candidati = c.fetchall()
     finally:
@@ -80,6 +80,7 @@ def carica_riunioni():
     conn = get_connection()
     try:
         with conn.cursor() as c:
+            # Verifica il nome corretto della colonna data_riunione
             c.execute("SELECT id, recruiter_id, data_riunione, partecipato FROM riunioni")
             riunioni = c.fetchall()
     finally:
