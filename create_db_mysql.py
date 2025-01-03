@@ -11,6 +11,7 @@ def create_database_mysql():
       - settori, project_managers, recruiters
       - progetti (con TUTTI i campi, inclusi tempo_previsto e data_chiusura_prevista se vuoi)
       - recruiter_capacity
+      - candidati, riunioni, referrals, formazione
       - Popolazione di tabelle con dati iniziali (Retail, Estetico, ecc.)
     """
 
@@ -27,7 +28,8 @@ def create_database_mysql():
             port=port,
             user=user,
             password=password,
-            database=db_name
+            database=db_name,
+            autocommit=True  # Abilita il commit automatico
         )
         c = conn.cursor()
 
@@ -66,13 +68,13 @@ def create_database_mysql():
                 project_manager_id INT NOT NULL,
                 sales_recruiter_id INT NOT NULL,
                 stato_progetto VARCHAR(255),
-                data_inizio VARCHAR(255),
-                data_fine VARCHAR(255),
+                data_inizio DATE,
+                data_fine DATE,
                 tempo_totale INT,
                 recensione_stelle INT,
-                recensione_data VARCHAR(255),
+                recensione_data DATE,
                 tempo_previsto INT,  -- se presente nella tua app
-                data_chiusura_prevista VARCHAR(255), -- se lo desideri
+                data_chiusura_prevista DATE, -- se lo desideri
                 FOREIGN KEY (settore_id) REFERENCES settori(id),
                 FOREIGN KEY (project_manager_id) REFERENCES project_managers(id),
                 FOREIGN KEY (sales_recruiter_id) REFERENCES recruiters(id)
@@ -91,7 +93,60 @@ def create_database_mysql():
         ''')
 
         #
-        # 4) Popola tabelle con dati iniziali se vuote
+        # 4) Creazione delle nuove tabelle
+        #
+
+        # 4.1) Tabella candidati
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS candidati (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                progetto_id INT NOT NULL,
+                recruiter_id INT NOT NULL,
+                candidato_nome VARCHAR(255) NOT NULL,
+                data_inserimento DATE NOT NULL,
+                data_placement DATE NOT NULL,
+                data_dimissioni DATE,
+                FOREIGN KEY (progetto_id) REFERENCES progetti(id),
+                FOREIGN KEY (recruiter_id) REFERENCES recruiters(id)
+            )
+        ''')
+
+        # 4.2) Tabella riunioni
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS riunioni (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                recruiter_id INT NOT NULL,
+                data_riunione DATE NOT NULL,
+                partecipato BOOLEAN DEFAULT FALSE,
+                FOREIGN KEY (recruiter_id) REFERENCES recruiters(id)
+            )
+        ''')
+
+        # 4.3) Tabella referrals
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS referrals (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                recruiter_id INT NOT NULL,
+                cliente_nome VARCHAR(255) NOT NULL,
+                data_referral DATE NOT NULL,
+                stato VARCHAR(50) NOT NULL, -- es: 'In corso', 'Chiuso'
+                FOREIGN KEY (recruiter_id) REFERENCES recruiters(id)
+            )
+        ''')
+
+        # 4.4) Tabella formazione
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS formazione (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                recruiter_id INT NOT NULL,
+                corso_nome VARCHAR(255) NOT NULL,
+                data_completamento DATE NOT NULL,
+                FOREIGN KEY (recruiter_id) REFERENCES recruiters(id)
+            )
+        ''')
+
+        #
+        # 5) Popola tabelle con dati iniziali se vuote
         #
         settori_iniziali = ["Retail", "Estetico", "Tecnologico", "Finanziario", "Altro"]
         project_managers_iniziali = ["Paolo Patelli"]
@@ -107,7 +162,7 @@ def create_database_mysql():
             try:
                 c.execute("INSERT INTO settori (nome) VALUES (%s)", (settore,))
             except pymysql.IntegrityError:
-                pass
+                pass  # Ignora errori di duplicazione
 
         # Inserisci project_managers
         for pm in project_managers_iniziali:
@@ -133,17 +188,13 @@ def create_database_mysql():
                     (rec_id,)
                 )
             except pymysql.IntegrityError:
-                pass
-
-        conn.commit()
-        conn.close()
+                pass  # Ignora se la capacità è già stata impostata
 
         print("Database creato/aggiornato con successo su MySQL (Railway) con pymysql!")
-        print("(Tabelle: settori, project_managers, recruiters, progetti, recruiter_capacity)")
+        print("(Tabelle: settori, project_managers, recruiters, progetti, recruiter_capacity, candidati, riunioni, referrals, formazione)")
 
     except pymysql.Error as e:
         print(f"Errore di connessione MySQL: {e}")
-
 
 if __name__ == "__main__":
     create_database_mysql()
