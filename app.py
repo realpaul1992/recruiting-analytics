@@ -52,7 +52,7 @@ def carica_recruiters():
     conn.close()
     return rows
 
-def inserisci_dati(cliente, settore_id, pm_id, rec_id, data_inizio):
+def inserisci_dati(cliente, settore_id, pm_id, rec_id, data_inizio, tempo_previsto):
     """
     Inserisce un nuovo progetto in MySQL.
     """
@@ -77,9 +77,10 @@ def inserisci_dati(cliente, settore_id, pm_id, rec_id, data_inizio):
             data_fine,
             tempo_totale,
             recensione_stelle,
-            recensione_data
+            recensione_data,
+            tempo_previsto
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """
     c.execute(query, (
         cliente,
@@ -91,7 +92,8 @@ def inserisci_dati(cliente, settore_id, pm_id, rec_id, data_inizio):
         data_fine,
         tempo_totale,
         recensione_stelle,
-        recensione_data
+        recensione_data,
+        tempo_previsto
     ))
     conn.commit()
     conn.close()
@@ -117,7 +119,8 @@ def carica_dati_completo():
             p.data_fine,
             p.tempo_totale,
             p.recensione_stelle,
-            p.recensione_data
+            p.recensione_data,
+            p.tempo_previsto
         FROM progetti p
         JOIN settori s ON p.settore_id = s.id
         JOIN project_managers pm ON p.project_manager_id = pm.id
@@ -129,7 +132,7 @@ def carica_dati_completo():
     columns = [
         'id','cliente','settore','project_manager','sales_recruiter',
         'stato_progetto','data_inizio','data_fine','tempo_totale',
-        'recensione_stelle','recensione_data'
+        'recensione_stelle','recensione_data','tempo_previsto'
     ]
     conn.close()
 
@@ -510,7 +513,8 @@ def calcola_leaderboard(df, start_date, end_date):
     # Calcolo Bonus per Partecipazione alle Riunioni
     riunioni_data = carica_riunioni()
     riunioni_df = pd.DataFrame(riunioni_data)
-    riunioni_df = riunioni_df.merge(carica_recruiters(), left_on='recruiter_id', right_on='id', how='left')
+    recruiters_df = pd.DataFrame(carica_recruiters())
+    riunioni_df = riunioni_df.merge(recruiters_df, left_on='recruiter_id', right_on='id', how='left')
     riunioni_df['bonus_riunione'] = riunioni_df['partecipato'].apply(lambda x: 100 if x else 0)
     bonus_riunione = riunioni_df.groupby('nome')['bonus_riunione'].sum().reset_index()
     bonus_riunione.rename(columns={'nome': 'sales_recruiter', 'bonus_riunione': 'bonus_riunione'}, inplace=True)
@@ -518,7 +522,7 @@ def calcola_leaderboard(df, start_date, end_date):
     # Calcolo Bonus per Referral
     referrals_data = carica_referrals()
     referrals_df = pd.DataFrame(referrals_data)
-    referrals_df = referrals_df.merge(carica_recruiters(), left_on='recruiter_id', right_on='id', how='left')
+    referrals_df = referrals_df.merge(recruiters_df, left_on='recruiter_id', right_on='id', how='left')
     referrals_df['bonus_referral'] = referrals_df['stato'].apply(lambda x: 1000 if x.lower() == 'acquisito' else 0)
     bonus_referral = referrals_df.groupby('nome')['bonus_referral'].sum().reset_index()
     bonus_referral.rename(columns={'nome': 'sales_recruiter', 'bonus_referral': 'bonus_referral'}, inplace=True)
@@ -526,7 +530,7 @@ def calcola_leaderboard(df, start_date, end_date):
     # Calcolo Bonus per Formazione
     formazione_data = carica_formazione()
     formazione_df = pd.DataFrame(formazione_data)
-    formazione_df = formazione_df.merge(carica_recruiters(), left_on='recruiter_id', right_on='id', how='left')
+    formazione_df = formazione_df.merge(recruiters_df, left_on='recruiter_id', right_on='id', how='left')
     formazione_df['bonus_formazione'] = formazione_df['corso_nome'].apply(lambda x: 300 if x else 0)
     bonus_formazione = formazione_df.groupby('nome')['bonus_formazione'].sum().reset_index()
     bonus_formazione.rename(columns={'nome': 'sales_recruiter', 'bonus_formazione': 'bonus_formazione'}, inplace=True)
@@ -587,11 +591,13 @@ def format_date_display(x):
     except ValueError:
         return x  # Se il formato non è corretto o è vuoto, lascio inalterato
 
-def parse_date(date_str):
-    """Converti una stringa di data in un oggetto datetime.date (assumendo formato 'YYYY-MM-DD')."""
-    try:
-        return datetime.strptime(date_str, '%Y-%m-%d').date()
-    except (ValueError, TypeError):
+def parse_date(date_obj):
+    """Converti un oggetto datetime.date in una stringa 'YYYY-MM-DD'."""
+    if isinstance(date_obj, datetime) or isinstance(date_obj, pd.Timestamp):
+        return date_obj.strftime('%Y-%m-%d')
+    elif isinstance(date_obj, datetime.date):
+        return date_obj.strftime('%Y-%m-%d')
+    else:
         return None
 
 #######################################
@@ -651,6 +657,9 @@ if scelta == "Inserisci Dati":
                                         value="", 
                                         placeholder="Lascia vuoto se non disponibile")
 
+        # Tempo Previsto
+        tempo_previsto = st.number_input("Tempo Previsto (giorni)", min_value=0, step=1, value=0)
+
         submitted = st.form_submit_button("Inserisci Progetto")
         if submitted:
             if not cliente.strip():
@@ -667,7 +676,7 @@ if scelta == "Inserisci Dati":
             else:
                 data_inizio_sql = None
             
-            inserisci_dati(cliente.strip(), settore_id, pm_id, rec_id, data_inizio_sql)
+            inserisci_dati(cliente.strip(), settore_id, pm_id, rec_id, data_inizio_sql, tempo_previsto)
             st.success("Progetto inserito con successo!")
 
 #######################################
@@ -803,9 +812,46 @@ elif scelta == "Dashboard":
                 Calcoliamo la data di fine calcolata = data_inizio + tempo_previsto (giorni).
             """)
 
-            # Supponendo che 'tempo_previsto' sia gestito altrove o omesso
-            # Se non esiste 'tempo_previsto', questa sezione potrebbe necessitare ulteriori adattamenti
-            st.info("La funzionalità 'Carico Proiettato / Previsione' non è stata implementata.")
+            # Filtra i progetti con tempo_previsto > 0
+            df_ok = df[df['tempo_previsto'].notna() & (df['tempo_previsto'] > 0)]
+            df_ok['fine_calcolata'] = pd.to_datetime(df_ok['data_inizio'], errors='coerce') + \
+                                      pd.to_timedelta(df_ok['tempo_previsto'], unit='D')
+
+            df_incorso = df_ok[df_ok['stato_progetto'] == 'In corso'].copy()
+
+            st.subheader("Progetti In Corso con tempo_previsto > 0")
+            st.dataframe(df_incorso[['cliente','stato_progetto','data_inizio','tempo_previsto','fine_calcolata','sales_recruiter']])
+
+            st.write("**Vuoi vedere quali progetti si chiuderanno entro X giorni da oggi?**")
+            orizzonte_giorni = st.number_input("Seleziona i giorni di orizzonte", value=14, min_value=1)
+            today = datetime.today()
+            df_prossimi = df_incorso[df_ok['fine_calcolata'] <= (today + timedelta(days=orizzonte_giorni))]
+            if not df_prossimi.empty:
+                st.info(f"Progetti in corso che si chiuderanno entro {orizzonte_giorni} giorni:")
+                st.dataframe(df_prossimi[['cliente','sales_recruiter','fine_calcolata']])
+                
+                st.subheader("Recruiter che si libereranno in questo orizzonte")
+                closings = df_prossimi.groupby('sales_recruiter').size().reset_index(name='progetti_che_chiudono')
+                df_capacity = carica_recruiters_capacity()
+                df_attivi = df[df['stato_progetto'].isin(["In corso","Bloccato"])]
+                attivi_count = df_attivi.groupby('sales_recruiter').size().reset_index(name='Progetti Attivi')
+
+                rec_df = df_capacity.merge(closings, on='sales_recruiter', how='left').fillna(0)
+                rec_df['progetti_che_chiudono'] = rec_df['progetti_che_chiudono'].astype(int)
+                rec_df['Progetti Attivi'] = rec_df['Progetti Attivi'].astype(int)
+                rec_df['Nuovi Attivi'] = rec_df['Progetti Attivi'] - rec_df['progetti_che_chiudono']
+                rec_df.loc[rec_df['Nuovi Attivi'] < 0, 'Nuovi Attivi'] = 0
+                rec_df['Capacità Disponibile'] = rec_df['capacity'] - rec_df['Nuovi Attivi']
+                rec_df.loc[rec_df['Capacità Disponibile'] < 0, 'Capacità Disponibile'] = 0
+
+                st.dataframe(rec_df[['sales_recruiter','capacity','Progetti Attivi','progetti_che_chiudono','Nuovi Attivi','Capacità Disponibile']])
+                st.write("""
+                    Da questa tabella vedi quanti progetti chiudono per ogni recruiter 
+                    entro l'orizzonte selezionato, 
+                    e di conseguenza la nuova 'Capacità Disponibile' calcolata.
+                """)
+            else:
+                st.info("Nessun progetto in corso si chiuderà in questo orizzonte.")
 
         ################################
         # TAB 3: Bonus e Premi
@@ -880,6 +926,8 @@ elif scelta == "Dashboard":
                 - **Bronze:** Punteggio >= 2000  
                 - **Grey:** Altri punteggi  
                 """)
+
+                st.markdown("---")
 
         ################################
         # TAB 4: Backup
@@ -1093,9 +1141,14 @@ elif scelta == "Gestione":
                             recruiter_id_new = r['id']
                             break
                     
+                    try:
+                        data_riunione_new = datetime.strptime(data_riunione, '%Y-%m-%d').date()
+                    except ValueError:
+                        data_riunione_new = datetime.today().date()
+
                     data_riunione_new = st.date_input(
                         "Data Riunione", 
-                        value=datetime.strptime(data_riunione, '%Y-%m-%d').date(), 
+                        value=data_riunione_new, 
                         key=f"data_riunione_{ri_id}"
                     )
                     partecipato_new = st.selectbox(
@@ -1196,6 +1249,7 @@ elif scelta == "Gestione":
                         if not cliente_nome_new.strip():
                             st.error("Il campo 'Nome Cliente' è obbligatorio!")
                         else:
+                            inserisci_referral(recruiter_id_new, cliente_nome_new, data_referral_new, stato_referral_new)
                             modifica_referral(ref_id, recruiter_id_new, cliente_nome_new, data_referral_new, stato_referral_new)
                     
                     if btn_del_ref:
@@ -1256,9 +1310,14 @@ elif scelta == "Gestione":
                             break
                     
                     corso_nome_new = st.text_input("Nome Corso", value=corso_nome, key=f"corso_formazione_{form_id}")
+                    try:
+                        data_completamento_new = datetime.strptime(data_completamento, '%Y-%m-%d').date()
+                    except ValueError:
+                        data_completamento_new = datetime.today().date()
+
                     data_completamento_new = st.date_input(
                         "Data Completamento", 
-                        value=datetime.strptime(data_completamento, '%Y-%m-%d').date(), 
+                        value=data_completamento_new, 
                         key=f"data_completamento_formazione_{form_id}"
                     )
                     
@@ -1315,8 +1374,9 @@ elif scelta == "Gestione":
                 if not candidato_nome.strip():
                     st.error("Il campo 'Nome Candidato' è obbligatorio!")
                 else:
-                    data_dimissioni_sql = data_dimissioni if data_dimissioni else None
-                    inserisci_candidato(progetto_id, recruiter_id, candidato_nome, data_inserimento, data_dimissioni_sql)
+                    data_inserimento_sql = parse_date(data_inserimento)
+                    data_dimissioni_sql = parse_date(data_dimissioni)
+                    inserisci_candidato(progetto_id, recruiter_id, candidato_nome, data_inserimento_sql, data_dimissioni_sql)
         
         st.write("---")
         st.subheader("Modifica / Elimina Candidati Esistenti")
@@ -1367,14 +1427,27 @@ elif scelta == "Gestione":
                             break
 
                     candidato_nome_new = st.text_input("Nome Candidato", value=candidato_nome, key=f"candidato_nome_{cand_id}")
+                    try:
+                        data_inserimento_new = datetime.strptime(data_inserimento, '%Y-%m-%d').date()
+                    except ValueError:
+                        data_inserimento_new = datetime.today().date()
+
                     data_inserimento_new = st.date_input(
                         "Data Inserimento", 
-                        value=datetime.strptime(data_inserimento, '%Y-%m-%d').date(), 
+                        value=data_inserimento_new, 
                         key=f"data_inserimento_candidato_{cand_id}"
                     )
+                    if data_dimissioni:
+                        try:
+                            data_dimissioni_new = datetime.strptime(data_dimissioni, '%Y-%m-%d').date()
+                        except ValueError:
+                            data_dimissioni_new = datetime.today().date()
+                    else:
+                        data_dimissioni_new = None
+
                     data_dimissioni_new = st.date_input(
                         "Data Dimissioni (lascia vuoto se ancora in posizione)", 
-                        value=datetime.strptime(data_dimissioni, '%Y-%m-%d').date() if data_dimissioni else None,
+                        value=data_dimissioni_new if data_dimissioni_new else None,
                         key=f"data_dimissioni_candidato_{cand_id}"
                     )
                     
@@ -1388,7 +1461,9 @@ elif scelta == "Gestione":
                         if not candidato_nome_new.strip():
                             st.error("Il campo 'Nome Candidato' è obbligatorio!")
                         else:
-                            modifica_candidato(cand_id, progetto_id_new, recruiter_id_new, candidato_nome_new, data_inserimento_new, data_dimissioni_new)
+                            data_inserimento_sql_new = parse_date(data_inserimento_new)
+                            data_dimissioni_sql_new = parse_date(data_dimissioni_new)
+                            modifica_candidato(cand_id, progetto_id_new, recruiter_id_new, candidato_nome_new, data_inserimento_sql_new, data_dimissioni_sql_new)
                     
                     if btn_del_cand:
                         elimina_candidato(cand_id)
