@@ -639,8 +639,6 @@ with tab1:
                     if stato_agg == "":
                         stato_agg = None
 
-                    st.write("**Lascia vuoto per cancellare la data.**")
-
                     # Data Inizio e Data Fine
                     data_inizio_agg = st.text_input("Data Inizio (GG/MM/AAAA)", value=data_inizio_formatted)
                     data_fine_agg   = st.text_input("Data Fine (GG/MM/AAAA)",  value=data_fine_formatted)
@@ -656,9 +654,9 @@ with tab1:
                     else:
                         rec_data_input = None
 
-                    # Rimuovere 'tempo_previsto' come richiesto
+                    # Tempo Previsto (Mantenerlo)
                     tempo_previsto_existing = progetto['tempo_previsto'] if progetto['tempo_previsto'] else 0
-                    tempo_previsto_agg = st.number_input("Tempo Previsto (giorni)", value=int(tempo_previsto_existing), min_value=0, disabled=True, help="Campo rimosso per progetti una tantum.")
+                    tempo_previsto_agg = st.number_input("Tempo Previsto (giorni)", value=int(tempo_previsto_existing), min_value=0)
 
                     sub_update = st.form_submit_button("Aggiorna Progetto")
 
@@ -701,11 +699,9 @@ with tab1:
                             st.error(f"Recruiter '{rec_sel}' non esiste nei dizionari.")
                             st.stop()
 
-                        # Debugging: Stampa i valori che verranno aggiornati
-                        st.write("**Valori Aggiornati:**")
-                        st.write(f"Stato Progetto: {stato_agg}")
-                        st.write(f"Data Inizio: {data_inizio_parsed}")
-                        st.write(f"Data Fine: {data_fine_parsed}")
+                        # Assicurati che 'stato_progetto' sia formattato correttamente
+                        if stato_agg:
+                            stato_agg = stato_agg.strip().title()
 
                         aggiorna_progetto(
                             id_progetto=st.session_state.progetto_selezionato,
@@ -718,7 +714,7 @@ with tab1:
                             data_fine=data_fine_parsed,
                             recensione_stelle=rec_stelle_agg,
                             recensione_data=rec_data_input,
-                            tempo_previsto=tempo_previsto_agg  # Anche se disabilitato, passato per coerenza
+                            tempo_previsto=tempo_previsto_agg
                         )
                         st.success(f"Progetto {st.session_state.progetto_selezionato} aggiornato con successo!")
                         st.session_state.progetto_selezionato = None  # Reset dello stato di selezione
@@ -812,9 +808,6 @@ with tab2:
                 st.stop()
         else:
             data_fine_parsed = None
-
-        # Rimuovere 'tempo_previsto' come richiesto
-        # tempo_previsto = st.number_input("Tempo Previsto (giorni)", value=0, min_value=0)
 
         submit_continuative = st.form_submit_button("Inserisci Progetto Continuativo")
 
@@ -981,6 +974,10 @@ with tab2:
                                     st.error(f"Recruiter '{rec_sel}' non esiste nei dizionari.")
                                     st.stop()
 
+                                # Assicurati che 'stato_progetto' sia formattato correttamente
+                                if stato_agg:
+                                    stato_agg = stato_agg.strip().title()
+
                                 aggiorna_progetto(
                                     id_progetto=progetto_continuativo_scelto,
                                     cliente=cliente_sel.strip(),
@@ -992,7 +989,7 @@ with tab2:
                                     data_fine=None,    # Non modificare data_fine per progetti continuativi
                                     recensione_stelle=progetto['recensione_stelle'],
                                     recensione_data=progetto['recensione_data'],
-                                    tempo_previsto=progetto['tempo_previsto'],
+                                    tempo_previsto=progetto['tempo_previsto'],  # Mantiene il valore esistente
                                     is_continuative=1,
                                     number_recruiters=numero_venditori,
                                     frequency=None,
@@ -1009,10 +1006,3 @@ with tab2:
             file_name="progetti_continuativi.csv",
             mime="text/csv"
         )
-
-####################################
-# RIMOSSA DELLA SEZIONE GESTIONE RECRUITERS
-#######################################
-
-# La scheda "Gestione Recruiters" è stata rimossa come richiesto.
-# Tutte le funzionalità relative ai recruiters sono gestite nella scheda "Gestione Progetti Continuativi" se necessario.
