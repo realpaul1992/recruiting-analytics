@@ -611,7 +611,14 @@ with tab1:
 
             # Preleva start_date esistente
             start_date_existing = progetto['start_date']
-            start_date_formatted = parse_date(start_date_existing).strftime('%d/%m/%Y') if start_date_existing else ""
+            # Verifica il tipo di start_date_existing
+            if isinstance(start_date_existing, (datetime, date)):
+                start_date_formatted = start_date_existing.strftime('%d/%m/%Y')
+            elif isinstance(start_date_existing, str):
+                parsed_start_date = parse_date(start_date_existing)
+                start_date_formatted = parsed_start_date.strftime('%d/%m/%Y') if parsed_start_date else ""
+            else:
+                start_date_formatted = ""
 
             col_upd, col_del = st.columns([3,1])
             with col_upd:
@@ -676,7 +683,13 @@ with tab1:
                     
                     if rec_stelle_agg > 0:
                         rec_data_existing = progetto['recensione_data']
-                        rec_data_val = parse_date(rec_data_existing) if rec_data_existing else datetime.today().date()
+                        if isinstance(rec_data_existing, (datetime, date)):
+                            rec_data_val = rec_data_existing
+                        elif isinstance(rec_data_existing, str):
+                            parsed_rec_data = parse_date(rec_data_existing)
+                            rec_data_val = parsed_rec_data if parsed_rec_data else datetime.today().date()
+                        else:
+                            rec_data_val = datetime.today().date()
                         rec_data_input = st.date_input("Data Recensione", value=rec_data_val)
                     else:
                         rec_data_input = None
@@ -788,3 +801,208 @@ with tab1:
                 file_name="tutti_clienti.csv",
                 mime="text/csv"
             )
+
+####################################
+# TAB 2: Gestione Progetti Continuativi
+####################################
+with tab2:
+    st.header("Gestione Progetti Continuativi")
+
+    # Form per inserire un nuovo progetto continuativo
+    with st.form("form_inserisci_progetto_continuativo"):
+        st.subheader("Inserisci Nuovo Progetto Continuativo")
+
+        # Nome Cliente: selezionato dalla lista esistente
+        clienti = carica_clienti_db()
+        client_names = [c['cliente'] for c in clienti]
+        cliente_sel = st.selectbox("Nome Cliente", options=client_names)
+        
+        # Ottieni settore_id basato sul cliente selezionato
+        settore_id = None
+        for c in clienti:
+            if c['cliente'] == cliente_sel:
+                settore_id = c['settore_id']
+                break
+
+        # Project Manager
+        pm_nomi = [p['nome'] for p in project_managers_db]
+        pm_sel = st.selectbox("Project Manager", pm_nomi)
+        pm_id = project_managers_dict_reverse.get(pm_sel, None)
+
+        # Recruiter
+        rec_nomi = [r['nome'] for r in recruiters_db]
+        rec_sel = st.selectbox("Sales Recruiter", rec_nomi)
+        rec_id = recruiters_dict_reverse.get(rec_sel, None)
+
+        # Stato Progetto: lasciare vuoto per permettere selezione
+        stato_progetto = st.selectbox("Stato Progetto", [""] + STATI_PROGETTO, index=0)
+        if stato_progetto == "":
+            stato_progetto = None
+
+        # Numero di venditori da inserire
+        numero_venditori = st.number_input("Numero di Venditori da Inserire", min_value=1, value=1)
+
+        # Data Inizio Continuativo (start_date)
+        start_date_continuativo = st.date_input("Data Inizio Continuativo", value=datetime.today().date())
+
+        # Data Fine Continuativo opzionale
+        data_fine_continuativo = st.text_input("Data Fine Continuativo (GG/MM/AAAA, opzionale)", value="")
+        if data_fine_continuativo.strip():
+            try:
+                data_fine_parsed = datetime.strptime(data_fine_continuativo.strip(), '%d/%m/%Y').date()
+            except ValueError:
+                st.error("Data fine non valida (GG/MM/AAAA).")
+                st.stop()
+        else:
+            data_fine_parsed = None
+
+        tempo_previsto = st.number_input("Tempo Previsto (giorni)", value=0, min_value=0)
+
+        submit_continuative = st.form_submit_button("Inserisci Progetto Continuativo")
+
+        if submit_continuative:
+            if not cliente_sel.strip():
+                st.error("Il campo 'Nome Cliente' è obbligatorio!")
+                st.stop()
+            if not pm_id:
+                st.error("Project Manager selezionato non valido.")
+                st.stop()
+            if not rec_id:
+                st.error("Sales Recruiter selezionato non valido.")
+                st.stop()
+
+            # Assicurati che 'stato_progetto' sia formattato correttamente
+            if stato_progetto:
+                stato_progetto = stato_progetto.strip().title()
+
+            inserisci_progetto_continuativo(
+                cliente=cliente_sel.strip(),
+                settore_id=settore_id,
+                project_manager_id=pm_id,
+                sales_recruiter_id=rec_id,
+                stato_progetto=stato_progetto,
+                data_inizio=start_date_continuativo.strftime('%Y-%m-%d') if start_date_continuativo else None,
+                tempo_previsto=tempo_previsto,  # o un valore di default appropriato
+                is_continuative=True,
+                number_recruiters=numero_venditori,
+                frequency=None,
+                start_date=start_date_continuativo.strftime('%Y-%m-%d') if start_date_continuativo else None,
+                end_date=data_fine_parsed.strftime('%Y-%m-%d') if data_fine_parsed else None
+            )
+            st.success("Progetto continuativo inserito con successo!")
+            st.session_state.progetto_selezionato = None  # Reset dello stato di selezione
+
+    st.write("---")
+    st.subheader("Visualizza Progetti Continuativi Esistenti")
+    progetti_continuativi = carica_progetti_continuativi_db()
+    if progetti_continuativi:
+        df_continuativi = pd.DataFrame(progetti_continuativi)
+        df_continuativi['settore'] = df_continuativi['settore_id'].map(settori_dict)
+        df_continuativi['project_manager'] = df_continuativi['project_manager_id'].map(project_managers_dict)
+        df_continuativi['sales_recruiter'] = df_continuativi['sales_recruiter_id'].map(recruiters_dict)
+
+        # Format date con funzione aggiornata
+        df_continuativi['data_inizio'] = df_continuativi['data_inizio'].apply(format_date_display)
+        df_continuativi['data_fine']   = df_continuativi['data_fine'].apply(format_date_display)
+        df_continuativi['recensione_data'] = df_continuativi['recensione_data'].apply(format_date_display)
+        df_continuativi['start_date'] = df_continuativi['start_date'].apply(format_date_display)
+        df_continuativi['end_date'] = df_continuativi['end_date'].apply(format_date_display)
+
+        df_continuativi['stato_progetto'] = df_continuativi['stato_progetto'].fillna("")
+        df_continuativi['recensione_stelle'] = df_continuativi['recensione_stelle'].fillna(0).astype(int)
+        df_continuativi['tempo_previsto'] = df_continuativi['tempo_previsto'].fillna(0).astype(int)
+        df_continuativi['number_recruiters'] = df_continuativi['number_recruiters'].fillna(0).astype(int)
+
+        st.dataframe(df_continuativi[['id', 'cliente', 'settore', 'project_manager', 'sales_recruiter', 'stato_progetto', 'data_inizio', 'tempo_previsto', 'is_continuative', 'number_recruiters', 'start_date', 'end_date']])
+
+        st.download_button(
+            label="Scarica Progetti Continuativi in CSV",
+            data=df_continuativi.to_csv(index=False).encode('utf-8'),
+            file_name="progetti_continuativi.csv",
+            mime="text/csv"
+        )
+    else:
+        st.info("Nessun progetto continuativo presente nel DB.")
+
+####################################
+# OPZIONI AGGIUNTIVE (GESTIONE RECRUITERS, PROJECT MANAGERS, SETTORI)
+#######################################
+
+# Scheda aggiuntiva per la gestione dei Recruiters
+tab3 = st.sidebar.selectbox("Seleziona Sezione", ["Gestione Progetti", "Gestione Progetti Continuativi", "Gestione Recruiters"])
+
+if tab3 == "Gestione Recruiters":
+    st.header("Gestione Recruiters")
+
+    # Mostra la lista dei recruiter
+    df_recruiters = carica_recruiters_capacity()
+    st.subheader("Lista dei Recruiters e le loro Capacità")
+    st.dataframe(df_recruiters)
+
+    # Form per aggiornare la capacità di un recruiter
+    st.subheader("Aggiorna Capacità Recruiter")
+    with st.form("form_aggiorna_capacity"):
+        recruiter_sel = st.selectbox("Seleziona Recruiter", options=df_recruiters['sales_recruiter'].tolist())
+        recruiter_id = df_recruiters[df_recruiters['sales_recruiter'] == recruiter_sel]['id'].values[0]
+        nuova_capacity = st.number_input("Nuova Capacità", min_value=0, value=int(df_recruiters[df_recruiters['sales_recruiter'] == recruiter_sel]['capacity'].values[0]))
+        submit_capacity = st.form_submit_button("Aggiorna Capacità")
+
+        if submit_capacity:
+            aggiorna_capacity_recruiter(recruiter_id, nuova_capacity)
+
+    # Visualizza le capacità aggiornate
+    st.subheader("Capacità Aggiornate dei Recruiters")
+    df_recruiters_updated = carica_recruiters_capacity()
+    st.dataframe(df_recruiters_updated)
+
+    # Opzione per aggiungere un nuovo recruiter
+    st.subheader("Aggiungi Nuovo Recruiter")
+    with st.form("form_aggiungi_recruiter"):
+        nuovo_recruiter = st.text_input("Nome Recruiter")
+        submit_nuovo_recruiter = st.form_submit_button("Aggiungi Recruiter")
+
+        if submit_nuovo_recruiter:
+            if nuovo_recruiter.strip():
+                conn = get_connection()
+                c = conn.cursor()
+                try:
+                    c.execute("INSERT INTO recruiters (nome) VALUES (%s)", (nuovo_recruiter.strip(),))
+                    # Imposta la capacità iniziale a 5
+                    rec_id = c.lastrowid
+                    c.execute("INSERT INTO recruiter_capacity (recruiter_id, capacity_max) VALUES (%s, 5)", (rec_id,))
+                    conn.commit()
+                    st.success(f"Recruiter '{nuovo_recruiter}' aggiunto con capacità iniziale di 5.")
+                except pymysql.IntegrityError:
+                    st.error("Il recruiter esiste già.")
+                finally:
+                    conn.close()
+                backup_database()
+            else:
+                st.error("Il nome del recruiter non può essere vuoto.")
+
+    # Opzione per eliminare un recruiter
+    st.subheader("Elimina Recruiter")
+    with st.form("form_elimina_recruiter"):
+        recruiter_elim = st.selectbox("Seleziona Recruiter da Eliminare", options=df_recruiters['sales_recruiter'].tolist())
+        submit_elimina_recruiter = st.form_submit_button("Elimina Recruiter")
+
+        if submit_elimina_recruiter:
+            recruiter_id = df_recruiters[df_recruiters['sales_recruiter'] == recruiter_elim]['id'].values[0]
+            conn = get_connection()
+            c = conn.cursor()
+            try:
+                # Verifica se il recruiter è assegnato a qualche progetto
+                c.execute("SELECT COUNT(*) as count FROM progetti WHERE sales_recruiter_id = %s", (recruiter_id,))
+                count = c.fetchone()['count']
+                if count > 0:
+                    st.error("Impossibile eliminare il recruiter poiché è assegnato a uno o più progetti.")
+                else:
+                    c.execute("DELETE FROM recruiters WHERE id = %s", (recruiter_id,))
+                    c.execute("DELETE FROM recruiter_capacity WHERE recruiter_id = %s", (recruiter_id,))
+                    conn.commit()
+                    st.success(f"Recruiter '{recruiter_elim}' eliminato con successo.")
+            except pymysql.Error as e:
+                st.error(f"Errore durante l'eliminazione del recruiter: {e}")
+            finally:
+                conn.close()
+            backup_database()
