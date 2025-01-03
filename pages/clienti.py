@@ -364,7 +364,8 @@ def carica_progetti_continuativi_db():
 # DEFINIZIONE DELLE FUNZIONI CRUD
 ####################################
 
-# (Le funzioni CRUD per Riunioni, Referrals, Formazione e Candidati rimangono invariate)
+# Funzioni per Riunioni, Referrals, Formazione e Candidati rimangono invariate
+# ...
 
 ####################################
 # GESTIONE BACKUP in ZIP (Esportazione + Ripristino)
@@ -718,6 +719,12 @@ with tab1:
                         if rec_id_agg is None:
                             st.error(f"Recruiter '{rec_sel}' non esiste nei dizionari.")
                             st.stop()
+
+                        # Debugging: Stampa i valori che verranno aggiornati
+                        st.write("Valori aggiornati:")
+                        st.write(f"Stato Progetto: {stato_agg}")
+                        st.write(f"Start Date: {data_inizio_parsed}")
+                        st.write(f"End Date: {data_fine_parsed}")
 
                         aggiorna_progetto(
                             id_progetto=st.session_state.progetto_selezionato,
