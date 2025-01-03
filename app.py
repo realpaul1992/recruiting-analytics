@@ -70,11 +70,9 @@ def carica_candidati():
     conn = get_connection()
     try:
         with conn.cursor() as c:
-            c.execute("SELECT id, sales_recruiter_id, candidato_nome, data_inserimento, data_placement, data_dimissioni FROM candidati")
+            # Sostituire 'sales_recruiter_id' con la colonna corretta, ad esempio 'recruiter_id'
+            c.execute("SELECT id, recruiter_id, candidato_nome, data_inserimento, data_placement, data_dimissioni FROM candidati")
             candidati = c.fetchall()
-    except pymysql.Error as e:
-        st.error(f"Errore nel caricamento dei candidati: {e}")
-        return []
     finally:
         conn.close()
     return candidati
@@ -85,9 +83,6 @@ def carica_riunioni():
         with conn.cursor() as c:
             c.execute("SELECT id, recruiter_id, data_riunione, partecipato FROM riunioni")
             riunioni = c.fetchall()
-    except pymysql.Error as e:
-        st.error(f"Errore nel caricamento delle riunioni: {e}")
-        return []
     finally:
         conn.close()
     return riunioni
@@ -98,9 +93,6 @@ def carica_referrals():
         with conn.cursor() as c:
             c.execute("SELECT id, recruiter_id, cliente_nome, data_referral, stato FROM referrals")
             referrals = c.fetchall()
-    except pymysql.Error as e:
-        st.error(f"Errore nel caricamento dei referrals: {e}")
-        return []
     finally:
         conn.close()
     return referrals
@@ -111,9 +103,6 @@ def carica_formazione():
         with conn.cursor() as c:
             c.execute("SELECT id, recruiter_id, corso_nome, data_completamento FROM formazione")
             formazione = c.fetchall()
-    except pymysql.Error as e:
-        st.error(f"Errore nel caricamento della formazione: {e}")
-        return []
     finally:
         conn.close()
     return formazione
@@ -334,14 +323,13 @@ def restore_from_zip(zip_file):
                         conn.close()
                         return
 
+            conn.commit()
+            st.success("Ripristino completato con successo da ZIP.")
         except pymysql.Error as e:
             st.error(f"Errore nel ripristino del database: {e}")
             conn.rollback()
         finally:
             conn.close()
-
-    conn.commit()
-    st.success("Ripristino completato con successo da ZIP.")
 
 #######################################
 # CAPACITA' PER RECRUITER
@@ -358,9 +346,6 @@ def carica_recruiters_capacity():
                 ORDER BY r.nome
             ''')
             rows = c.fetchall()
-    except pymysql.Error as e:
-        st.error(f"Errore nel caricamento della capacità dei recruiter: {e}")
-        return pd.DataFrame()
     finally:
         conn.close()
     df_capacity = pd.DataFrame(rows, columns=['id', 'sales_recruiter', 'capacity'])
@@ -407,11 +392,6 @@ def calcola_leaderboard_mensile(df_progetti, df_candidati, df_riunioni, df_refer
     bonus_recensione = group['bonus_recensione'].sum().reset_index(name='bonus_totale')
     bonus_completamento = group['bonus_completamento'].sum().reset_index(name='bonus_completamento')
 
-    # Merge i primi tre dataframe
-    leaderboard = completati.merge(tempo_medio, on='sales_recruiter', how='left')
-    leaderboard = leaderboard.merge(bonus_recensione, on='sales_recruiter', how='left')
-    leaderboard = leaderboard.merge(bonus_completamento, on='sales_recruiter', how='left')
-
     # Calcola bonus per retenzione
     df_candidati_filtered = pd.DataFrame(df_candidati)
     df_candidati_filtered['data_placement_dt'] = pd.to_datetime(df_candidati_filtered['data_placement'], errors='coerce')
@@ -422,22 +402,18 @@ def calcola_leaderboard_mensile(df_progetti, df_candidati, df_riunioni, df_refer
 
     # Candidati che rimangono >=6 mesi
     df_retenzione_stayed = df_candidati_filtered[df_candidati_filtered['mesi_permanenza'] >= 6]
-    bonus_retenzione = df_retenzione_stayed.groupby('sales_recruiter_id').size().reset_index(name='bonus_retenzione')
+    bonus_retenzione = df_retenzione_stayed.groupby('recruiter_id').size().reset_index(name='bonus_retenzione')
     bonus_retenzione['bonus_retenzione'] = bonus_retenzione['bonus_retenzione'] * 300
 
     # Candidati che lasciano <=3 mesi
     df_retenzione_left = df_candidati_filtered[df_candidati_filtered['mesi_permanenza'] <= 3]
-    bonus_retenzione_left = df_retenzione_left.groupby('sales_recruiter_id').size().reset_index(name='bonus_retenzione_left')
+    bonus_retenzione_left = df_retenzione_left.groupby('recruiter_id').size().reset_index(name='bonus_retenzione_left')
     bonus_retenzione_left['bonus_retenzione_left'] = bonus_retenzione_left['bonus_retenzione_left'] * -200
 
     # Merge bonus_retenzione e bonus_retenzione_left
-    bonus_retenzione_total = pd.merge(bonus_retenzione, bonus_retenzione_left, on='sales_recruiter_id', how='outer').fillna(0)
+    bonus_retenzione_total = pd.merge(bonus_retenzione, bonus_retenzione_left, on='recruiter_id', how='outer').fillna(0)
     bonus_retenzione_total['bonus_retenzione'] = bonus_retenzione_total['bonus_retenzione'] + bonus_retenzione_total['bonus_retenzione_left']
-    bonus_retenzione_total = bonus_retenzione_total[['sales_recruiter_id', 'bonus_retenzione']]
-
-    # Merge con il dataframe principale
-    leaderboard = leaderboard.merge(bonus_retenzione_total, left_on='sales_recruiter', right_on='sales_recruiter_id', how='left')
-    leaderboard['bonus_retenzione'] = leaderboard['bonus_retenzione'].fillna(0)
+    bonus_retenzione_total = bonus_retenzione_total[['recruiter_id', 'bonus_retenzione']]
 
     # Calcola bonus per riunioni partecipate
     df_riunioni_filtered = pd.DataFrame(df_riunioni)
@@ -449,10 +425,6 @@ def calcola_leaderboard_mensile(df_progetti, df_candidati, df_riunioni, df_refer
     ]
     bonus_riunioni = df_riunioni_filtered.groupby('recruiter_id').size().reset_index(name='bonus_riunioni')
     bonus_riunioni['bonus_riunioni'] = bonus_riunioni['bonus_riunioni'] * 100
-
-    # Merge con il dataframe principale
-    leaderboard = leaderboard.merge(bonus_riunioni, left_on='sales_recruiter', right_on='recruiter_id', how='left')
-    leaderboard['bonus_riunioni'] = leaderboard['bonus_riunioni'].fillna(0)
 
     # Calcola bonus per referrals
     df_referrals_filtered = pd.DataFrame(df_referrals)
@@ -466,10 +438,6 @@ def calcola_leaderboard_mensile(df_progetti, df_candidati, df_riunioni, df_refer
     bonus_referrals = df_referrals_filtered.groupby('recruiter_id').size().reset_index(name='bonus_referrals')
     bonus_referrals['bonus_referrals'] = bonus_referrals['bonus_referrals'] * 1000
 
-    # Merge con il dataframe principale
-    leaderboard = leaderboard.merge(bonus_referrals, left_on='sales_recruiter', right_on='recruiter_id', how='left')
-    leaderboard['bonus_referrals'] = leaderboard['bonus_referrals'].fillna(0)
-
     # Calcola bonus per formazione
     df_formazione_filtered = pd.DataFrame(df_formazione)
     df_formazione_filtered['data_completamento_dt'] = pd.to_datetime(df_formazione_filtered['data_completamento'], errors='coerce')
@@ -480,7 +448,35 @@ def calcola_leaderboard_mensile(df_progetti, df_candidati, df_riunioni, df_refer
     bonus_formazione = df_formazione_filtered.groupby('recruiter_id').size().reset_index(name='bonus_formazione')
     bonus_formazione['bonus_formazione'] = bonus_formazione['bonus_formazione'] * 300
 
-    # Merge con il dataframe principale
+    # Merge tutti i bonus
+    leaderboard = completati.merge(tempo_medio, on='sales_recruiter', how='left')
+    leaderboard = leaderboard.merge(bonus_recensione, on='sales_recruiter', how='left')
+    leaderboard = leaderboard.merge(bonus_completamento, on='sales_recruiter', how='left')
+
+    # Mappa recruiter_id a sales_recruiter
+    # Creiamo un dizionario per mappare recruiter_id a nome
+    recruiters = carica_recruiters()
+    recruiter_id_map = {r['id']: r['nome'] for r in recruiters}
+
+    # Aggiungi recruiter_id al DataFrame completati
+    completati = completati.rename(columns={'sales_recruiter': 'recruiter_name'})
+    completati['recruiter_id'] = completati['recruiter_name'].map(
+        lambda x: next((r['id'] for r in recruiters if r['nome'] == x), None)
+    )
+
+    # Merge con bonus_retenzione_total
+    leaderboard = leaderboard.merge(bonus_retenzione_total, left_on='sales_recruiter', right_on='recruiter_id', how='left')
+    leaderboard['bonus_retenzione'] = leaderboard['bonus_retenzione'].fillna(0)
+
+    # Merge con bonus_riunioni
+    leaderboard = leaderboard.merge(bonus_riunioni, left_on='sales_recruiter', right_on='recruiter_id', how='left')
+    leaderboard['bonus_riunioni'] = leaderboard['bonus_riunioni'].fillna(0)
+
+    # Merge con bonus_referrals
+    leaderboard = leaderboard.merge(bonus_referrals, left_on='sales_recruiter', right_on='recruiter_id', how='left')
+    leaderboard['bonus_referrals'] = leaderboard['bonus_referrals'].fillna(0)
+
+    # Merge con bonus_formazione
     leaderboard = leaderboard.merge(bonus_formazione, left_on='sales_recruiter', right_on='recruiter_id', how='left')
     leaderboard['bonus_formazione'] = leaderboard['bonus_formazione'].fillna(0)
 
@@ -596,10 +592,12 @@ if scelta == "Inserisci Dati":
                 rec_id = r['id']
                 break
         
+        # Data di Inizio
         data_inizio_str = st.text_input("Data di Inizio (GG/MM/AAAA)", 
                                         value="", 
                                         placeholder="Lascia vuoto se non disponibile")
 
+        # Pulsante di Submit
         submitted = st.form_submit_button("Inserisci Progetto")
         if submitted:
             if not cliente.strip():
@@ -824,6 +822,14 @@ elif scelta == "Dashboard":
                 st.error(f"Errore nella selezione di Anno per i bonus: {e}")
                 st.stop()
 
+            # Calcola il bonus totale per ogni recruiter
+            df_bonus_totale = df_progetti[
+                (df_progetti['recensione_data_dt'] >= pd.Timestamp(start_date_bonus)) & 
+                (df_progetti['recensione_data_dt'] <= pd.Timestamp(end_date_bonus))
+            ].copy()
+            df_bonus_totale['bonus'] = df_bonus_totale['recensione_stelle'].fillna(0).astype(int).apply(calcola_bonus)
+            bonus_rec = df_bonus_totale.groupby('sales_recruiter')['bonus'].sum().reset_index()
+
             # Calcola il punteggio totale considerando i nuovi criteri
             leaderboard_df = calcola_leaderboard_mensile(
                 df_progetti=df_progetti,
@@ -926,8 +932,7 @@ elif scelta == "Dashboard":
 
                 # **3) Recruiter con più Bonus ottenuti** (Recensioni)
                 st.markdown("**3) Recruiter con più Bonus ottenuti** (Recensioni)")
-                df_bonus = leaderboard_df[['Sales Recruiter', 'Bonus Recensioni (€)']].copy()
-                df_bonus = df_bonus.rename(columns={'Sales Recruiter': 'sales_recruiter', 'Bonus Recensioni (€)': 'bonus'})
+                df_bonus = df_bonus_totale.copy()
                 df_bonus = df_bonus.sort_values(by='bonus', ascending=False)
                 if df_bonus.empty:
                     st.info("Nessun bonus calcolato.")
