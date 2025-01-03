@@ -176,8 +176,36 @@ progetti = carica_progetti()
 recruiters = carica_recruiters()
 candidati = carica_candidati()
 
+# Crea dizionari per mapping
+progetti_dict = carica_progetti_dict()
+recruiters_dict = carica_recruiters_dict()
+
 # Creiamo le Tab
 tab1, tab2, tab3, tab4 = st.tabs(["Settori", "Project Managers", "Recruiters", "Candidati"])
+
+################################
+# TAB 1: Settori
+################################
+with tab1:
+    st.header("Gestione Settori")
+    st.write("Funzionalità da implementare.")
+    # Puoi implementare la gestione dei settori qui, simile a come gestisci i candidati.
+
+################################
+# TAB 2: Project Managers
+################################
+with tab2:
+    st.header("Gestione Project Managers")
+    st.write("Funzionalità da implementare.")
+    # Puoi implementare la gestione dei Project Managers qui.
+
+################################
+# TAB 3: Recruiters
+################################
+with tab3:
+    st.header("Gestione Recruiters")
+    st.write("Funzionalità da implementare.")
+    # Puoi implementare la gestione dei Recruiters qui.
 
 ################################
 # TAB 4: Candidati
@@ -193,7 +221,7 @@ with tab4:
         st.subheader("Inserisci Nuovo Candidato")
         with st.form("form_inserisci_candidato"):
             # Recruiter
-            recruiters_nomi = [r['nome'] for r in recruiters]
+            recruiters_nomi = list(recruiters_dict.keys())
             recruiter_sel = st.selectbox("Recruiter", recruiters_nomi)
             recruiter_id = recruiters_dict.get(recruiter_sel)
 
@@ -216,7 +244,7 @@ with tab4:
                                                 placeholder="Lascia vuoto se non disponibile")
 
             # Seleziona Progetto
-            progetti_nomi = [p['cliente'] for p in progetti]
+            progetti_nomi = list(progetti_dict.keys())
             progetto_sel = st.selectbox("Seleziona Progetto", progetti_nomi)
             progetto_id = progetti_dict.get(progetto_sel)
 
@@ -256,7 +284,7 @@ with tab4:
 
             with st.form("form_modifica_candidato"):
                 # Recruiter
-                recruiters_nomi = [r['nome'] for r in recruiters]
+                recruiters_nomi = list(recruiters_dict.keys())
                 recruiter_sel_mod = st.selectbox("Recruiter", recruiters_nomi, index=recruiters_nomi.index(candidato['recruiter_nome']))
                 recruiter_id_mod = recruiters_dict.get(recruiter_sel_mod)
 
@@ -264,22 +292,34 @@ with tab4:
                 candidato_nome_mod = st.text_input("Nome Candidato", value=candidato['candidato_nome'])
 
                 # Data di Inserimento
+                if pd.notna(candidato['data_inserimento']):
+                    data_inserimento_val = candidato['data_inserimento'].strftime('%d/%m/%Y')
+                else:
+                    data_inserimento_val = ""
                 data_inserimento_mod = st.text_input("Data di Inserimento (GG/MM/AAAA)", 
-                                                    value=candidato['data_inserimento'].strftime('%d/%m/%Y') if pd.notna(candidato['data_inserimento']) else "", 
+                                                    value=data_inserimento_val, 
                                                     placeholder="Lascia vuoto se non disponibile")
 
                 # Data di Placement
+                if pd.notna(candidato['data_placement']):
+                    data_placement_val = candidato['data_placement'].strftime('%d/%m/%Y')
+                else:
+                    data_placement_val = ""
                 data_placement_mod = st.text_input("Data di Placement (GG/MM/AAAA)", 
-                                                   value=candidato['data_placement'].strftime('%d/%m/%Y') if pd.notna(candidato['data_placement']) else "", 
+                                                   value=data_placement_val, 
                                                    placeholder="Lascia vuoto se non disponibile")
 
                 # Data di Dimissioni
+                if pd.notna(candidato['data_dimissioni']):
+                    data_dimissioni_val = candidato['data_dimissioni'].strftime('%d/%m/%Y')
+                else:
+                    data_dimissioni_val = ""
                 data_dimissioni_mod = st.text_input("Data di Dimissioni (GG/MM/AAAA)", 
-                                                    value=candidato['data_dimissioni'].strftime('%d/%m/%Y') if pd.notna(candidato['data_dimissioni']) else "", 
+                                                    value=data_dimissioni_val, 
                                                     placeholder="Lascia vuoto se non disponibile")
 
                 # Seleziona Progetto
-                progetti_nomi_mod = [p['cliente'] for p in progetti]
+                progetti_nomi_mod = list(progetti_dict.keys())
                 progetto_sel_mod = st.selectbox("Seleziona Progetto", progetti_nomi_mod, index=progetti_nomi_mod.index(candidato['progetto_cliente']))
                 progetto_id_mod = progetti_dict.get(progetto_sel_mod)
 
@@ -318,26 +358,6 @@ with tab4:
                         st.success("Candidato eliminato con successo!")
                         # Aggiorna la lista dei candidati
                         candidati = carica_candidati()
+                        st.experimental_rerun()
                     else:
                         st.error("Devi confermare l'eliminazione del candidato.")
-
-################################
-# TAB 1: Settori
-################################
-with tab1:
-    st.header("Gestione Settori")
-    st.write("Funzionalità da implementare.")
-
-################################
-# TAB 2: Project Managers
-################################
-with tab2:
-    st.header("Gestione Project Managers")
-    st.write("Funzionalità da implementare.")
-
-################################
-# TAB 3: Recruiters
-################################
-with tab3:
-    st.header("Gestione Recruiters")
-    st.write("Funzionalità da implementare.")
