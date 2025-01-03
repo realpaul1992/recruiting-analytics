@@ -4,9 +4,11 @@ import streamlit as st
 import pandas as pd
 import pymysql
 from datetime import datetime, date
-
 import sys
 import os
+import zipfile
+
+# Aggiungi il percorso per importare utils.py
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils import format_date_display, parse_date
 
@@ -25,6 +27,7 @@ def get_connection():
     )
 
 def carica_settori_db():
+    """Carica tutti i settori dal database."""
     conn = get_connection()
     c = conn.cursor()
     c.execute("SELECT id, nome FROM settori ORDER BY nome ASC")
@@ -33,6 +36,7 @@ def carica_settori_db():
     return settori
 
 def carica_project_managers_db():
+    """Carica tutti i project managers dal database."""
     conn = get_connection()
     c = conn.cursor()
     c.execute("SELECT id, nome FROM project_managers ORDER BY nome ASC")
@@ -41,12 +45,22 @@ def carica_project_managers_db():
     return pm
 
 def carica_recruiters_db():
+    """Carica tutti i recruiter dal database."""
     conn = get_connection()
     c = conn.cursor()
     c.execute("SELECT id, nome FROM recruiters ORDER BY nome ASC")
     rec = c.fetchall()
     conn.close()
     return rec
+
+def carica_clienti_db():
+    """Carica tutti i clienti distinti dal database."""
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("SELECT DISTINCT cliente, settore_id FROM progetti ORDER BY cliente ASC")
+    clienti = c.fetchall()
+    conn.close()
+    return clienti
 
 def cerca_progetti(id_progetto=None, nome_cliente=None, include_continuativi=True):
     """Cerca progetti nel database. Include o esclude progetti continuativi."""
@@ -67,7 +81,8 @@ def cerca_progetti(id_progetto=None, nome_cliente=None, include_continuativi=Tru
             p.number_recruiters,
             p.recensione_stelle,
             p.recensione_data,
-            p.tempo_previsto
+            p.tempo_previsto,
+            p.is_continuative
         FROM progetti p
         WHERE 1=1
     """
@@ -169,14 +184,6 @@ def cancella_progetto(id_progetto):
     conn.commit()
     conn.close()
 
-def carica_dati_completo(include_continuativi=True):
-    """Carica tutti i progetti dal database. Include o esclude progetti continuativi."""
-    return cerca_progetti(include_continuativi=include_continuativi)
-
-####################################
-# Funzioni per Progetti Continuativi
-####################################
-
 def inserisci_progetto_continuativo(
     cliente,
     settore_id,
@@ -242,6 +249,10 @@ def inserisci_progetto_continuativo(
 def carica_progetti_continuativi_db():
     """Carica i progetti continuativi dal database."""
     return cerca_progetti(include_continuativi=True)
+
+def carica_dati_completo(include_continuativi=True):
+    """Carica tutti i progetti dal database. Include o esclude progetti continuativi."""
+    return cerca_progetti(include_continuativi=include_continuativi)
 
 ####################################
 # GESTIONE BACKUP in ZIP (Esportazione + Ripristino)
@@ -356,6 +367,7 @@ STATI_PROGETTO = ["Completato", "In corso", "Bloccato"]
 settori_db = carica_settori_db()
 project_managers_db = carica_project_managers_db()
 recruiters_db = carica_recruiters_db()
+clienti_db = carica_clienti_db()
 
 settori_dict = {row['id']: row['nome'] for row in settori_db}
 settori_dict_reverse = {v: k for k, v in settori_dict.items()}
@@ -368,6 +380,9 @@ recruiters_dict_reverse = {v: k for k, v in recruiters_dict.items()}
 
 if 'progetto_selezionato' not in st.session_state:
     st.session_state.progetto_selezionato = None
+
+if 'show_confirm_delete' not in st.session_state:
+    st.session_state.show_confirm_delete = False
 
 st.title("Gestione Clienti")
 
@@ -395,7 +410,8 @@ with tab1:
                 columns = [
                     'id','cliente','settore_id','project_manager_id','sales_recruiter_id',
                     'stato_progetto','data_inizio','data_fine','start_date','end_date',
-                    'number_recruiters','recensione_stelle','recensione_data','tempo_previsto'
+                    'number_recruiters','recensione_stelle','recensione_data','tempo_previsto',
+                    'is_continuative'
                 ]
                 df_risultati = pd.DataFrame(risultati, columns=columns)
 
@@ -549,16 +565,14 @@ with tab1:
                     end_date_parsed = None
 
                     if data_inizio_agg.strip():
-                        try:
-                            data_inizio_parsed = datetime.strptime(data_inizio_agg.strip(), '%d/%m/%Y').date()
-                        except ValueError:
+                        data_inizio_parsed = parse_date(data_inizio_agg.strip())
+                        if not data_inizio_parsed:
                             st.error("Data Inizio non valida (GG/MM/AAAA).")
                             st.stop()
 
                     if data_fine_agg.strip():
-                        try:
-                            data_fine_parsed = datetime.strptime(data_fine_agg.strip(), '%d/%m/%Y').date()
-                        except ValueError:
+                        data_fine_parsed = parse_date(data_fine_agg.strip())
+                        if not data_fine_parsed:
                             st.error("Data Fine non valida (GG/MM/AAAA).")
                             st.stop()
 
@@ -568,16 +582,14 @@ with tab1:
                             st.stop()
 
                     if data_inizio_continuativo.strip():
-                        try:
-                            start_date_parsed = datetime.strptime(data_inizio_continuativo.strip(), '%d/%m/%Y').date()
-                        except ValueError:
+                        start_date_parsed = parse_date(data_inizio_continuativo.strip())
+                        if not start_date_parsed:
                             st.error("Data Inizio Continuativo non valida (GG/MM/AAAA).")
                             st.stop()
 
                     if data_fine_continuativo.strip():
-                        try:
-                            end_date_parsed = datetime.strptime(data_fine_continuativo.strip(), '%d/%m/%Y').date()
-                        except ValueError:
+                        end_date_parsed = parse_date(data_fine_continuativo.strip())
+                        if not end_date_parsed:
                             st.error("Data Fine Continuativo non valida (GG/MM/AAAA).")
                             st.stop()
 
@@ -618,12 +630,16 @@ with tab1:
                     st.session_state.progetto_selezionato = None
 
                 if submit_delete:
-                    conferma = st.warning("Sei sicuro di voler eliminare questo progetto? Questa azione è irreversibile.")
-                    conferma_delete = st.button("Conferma Eliminazione")
-                    if conferma_delete:
-                        cancella_progetto(st.session_state.progetto_selezionato)
-                        st.success(f"Progetto ID {st.session_state.progetto_selezionato} eliminato con successo!")
-                        st.session_state.progetto_selezionato = None
+                    st.session_state.show_confirm_delete = True
+
+    if st.session_state.show_confirm_delete and st.session_state.progetto_selezionato:
+        st.warning("Sei sicuro di voler eliminare questo progetto? Questa azione è irreversibile.")
+        conferma_delete = st.button("Conferma Eliminazione")
+        if conferma_delete:
+            cancella_progetto(st.session_state.progetto_selezionato)
+            st.success(f"Progetto ID {st.session_state.progetto_selezionato} eliminato con successo!")
+            st.session_state.progetto_selezionato = None
+            st.session_state.show_confirm_delete = False
 
     st.header("Tutti i Clienti Gestiti")
 
@@ -665,7 +681,6 @@ with tab2:
     st.subheader("Inserisci Nuovo Progetto Continuativo")
     with st.form("form_inserisci_progetto_continuativo"):
         # Nome Cliente: selezionato dalla lista esistente
-        clienti = carica_progetti_continuativi_db()
         clienti_db = carica_clienti_db()
         client_names = [c['cliente'] for c in clienti_db]
         cliente_sel = st.selectbox("Nome Cliente", options=client_names)
@@ -698,9 +713,8 @@ with tab2:
         # Data Fine Continuativo opzionale
         data_fine_continuativo = st.text_input("Data Fine Continuativo (GG/MM/AAAA, opzionale)", value="")
         if data_fine_continuativo.strip():
-            try:
-                data_fine_parsed = datetime.strptime(data_fine_continuativo.strip(), '%d/%m/%Y').date()
-            except ValueError:
+            data_fine_parsed = parse_date(data_fine_continuativo.strip())
+            if data_fine_parsed is None:
                 st.error("Data Fine Continuativo non valida (GG/MM/AAAA).")
                 st.stop()
         else:
@@ -757,8 +771,8 @@ with tab2:
     st.subheader("Visualizza Progetti Continuativi Esistenti")
     if st.button("Mostra Progetti Continuativi"):
         progetti_continuativi = carica_dati_completo(include_continuativi=True)
-        progetti_continuativi = progetti_continuativi[progetti_continuativi['is_continuative'] == 1]
-        if progetti_continuativi.empty:
+        progetti_continuativi = [p for p in progetti_continuativi if p['is_continuative'] == 1]
+        if not progetti_continuativi:
             st.info("Nessun progetto continuativo presente nel DB.")
         else:
             df_continuativi = pd.DataFrame(progetti_continuativi)
