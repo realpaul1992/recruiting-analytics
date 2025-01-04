@@ -367,6 +367,7 @@ def restore_from_zip(zip_file):
 # CONFIG E LAYOUT
 #######################################
 
+# Lista degli stati progetto con "In corso" correttamente capitalizzato
 STATI_PROGETTO = ["Completato", "In corso", "Bloccato"]
 
 settori_db = carica_settori_db()
@@ -517,8 +518,13 @@ with tab1:
                 # Stato Progetto
                 # *** Correzione Qui ***
                 # Assicurati che 'stato_attuale' sia correttamente trovato nella lista STATI_PROGETTO
-                # E aggiungi eventualmente 'stato_attuale' se non presente
+                # E aggiungi eventualmente 'stato_attuale' se non presente con la giusta capitalizzazione
                 if stato_attuale not in STATI_PROGETTO:
+                    # Trasforma 'stato_attuale' in base al valore
+                    if stato_attuale.lower() == "in corso":
+                        stato_attuale = "In corso"
+                    else:
+                        stato_attuale = stato_attuale.title()
                     STATI_PROGETTO.append(stato_attuale)
 
                 stato_agg = st.selectbox(
