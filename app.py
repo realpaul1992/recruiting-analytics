@@ -24,7 +24,8 @@ def get_connection():
         port=14718,
         user="root",
         password="GoHrUNytXgoikyAkbwYQpYLnfuQVQdBM",
-        database="railway"
+        database="railway",
+        cursorclass=pymysql.cursors.DictCursor  # Per ottenere risultati come dizionari
     )
 
 def carica_settori():
@@ -104,6 +105,7 @@ def inserisci_dati(cliente, settore_id, pm_id, rec_id, data_inizio):
 def carica_dati_completo():
     """
     Carica i progetti uniti a settori, pm, recruiters, includendo 'tempo_previsto'.
+    Aggiunge una colonna 'effective_start_date' che unisce 'data_inizio' e 'start_date'.
     """
     conn = get_connection()
     c = conn.cursor()
@@ -117,6 +119,8 @@ def carica_dati_completo():
             p.stato_progetto,
             p.data_inizio,
             p.data_fine,
+            p.start_date,
+            p.end_date,
             p.tempo_totale,
             p.recensione_stelle,
             p.recensione_data,
@@ -131,8 +135,8 @@ def carica_dati_completo():
 
     columns = [
         'id','cliente','settore','project_manager','sales_recruiter',
-        'stato_progetto','data_inizio','data_fine','tempo_totale',
-        'recensione_stelle','recensione_data','tempo_previsto'
+        'stato_progetto','data_inizio','data_fine','start_date','end_date',
+        'tempo_totale','recensione_stelle','recensione_data','tempo_previsto'
     ]
     conn.close()
 
@@ -143,9 +147,13 @@ def carica_dati_completo():
         df["tempo_previsto"] = pd.to_numeric(df["tempo_previsto"], errors="coerce")
         df["tempo_previsto"] = df["tempo_previsto"].fillna(0).astype(int)
     
-    # Aggiungi 'data_inizio_dt' e 'recensione_data_dt' subito dopo
+    # Aggiungi 'data_inizio_dt' e 'start_date_dt'
     df['data_inizio_dt'] = pd.to_datetime(df['data_inizio'], errors='coerce')
+    df['start_date_dt'] = pd.to_datetime(df['start_date'], errors='coerce')
     df['recensione_data_dt'] = pd.to_datetime(df['recensione_data'], errors='coerce')
+    
+    # Crea 'effective_start_date' che utilizza 'data_inizio_dt' se presente, altrimenti 'start_date_dt'
+    df['effective_start_date'] = df['data_inizio_dt'].combine_first(df['start_date_dt'])
     
     return df
 
@@ -189,17 +197,20 @@ def backup_database():
 
         # Legge l’elenco delle tabelle
         c.execute("SHOW TABLES")
-        tables = c.fetchall()
+        tables = [list(table.values())[0] for table in c.fetchall()]
 
         st.info("Inizio backup MySQL in ZIP...")
 
-        for (table_name,) in tables:
+        for table_name in tables:
             # Query: SELECT * FROM <table_name>
             c.execute(f"SELECT * FROM {table_name}")
             rows = c.fetchall()
-            col_names = [desc[0] for desc in c.description]
+            if not rows:
+                st.warning(f"Nessun dato trovato nella tabella {table_name}.")
+                continue
+            col_names = rows[0].keys()
 
-            df_table = pd.DataFrame(rows, columns=col_names)
+            df_table = pd.DataFrame(rows)
             csv_data = df_table.to_csv(index=False, encoding="utf-8")
 
             # Scrivi il CSV direttamente nell'archivio ZIP
@@ -292,6 +303,8 @@ def carica_recruiters_capacity():
 def calcola_leaderboard_mensile(df, start_date, end_date):
     df_temp = df.copy()
     df_temp['data_inizio_dt'] = pd.to_datetime(df_temp['data_inizio'], errors='coerce')
+    df_temp['start_date_dt'] = pd.to_datetime(df_temp['start_date'], errors='coerce')
+    df_temp['effective_start_date'] = df_temp['data_inizio_dt'].combine_first(df_temp['start_date_dt'])
     df_temp['recensione_stelle'] = df_temp['recensione_stelle'].fillna(0).astype(int)
 
     # bonus da recensioni
@@ -306,8 +319,8 @@ def calcola_leaderboard_mensile(df, start_date, end_date):
 
     mask = (
         (df_temp['stato_progetto'] == 'Completato') &
-        (df_temp['data_inizio_dt'] >= pd.Timestamp(start_date)) &
-        (df_temp['data_inizio_dt'] <= pd.Timestamp(end_date))
+        (df_temp['effective_start_date'] >= pd.Timestamp(start_date)) &
+        (df_temp['effective_start_date'] <= pd.Timestamp(end_date))
     )
     df_filtro = df_temp[mask].copy()
 
@@ -391,30 +404,30 @@ if scelta == "Inserisci Dati":
         cliente = st.text_input("Nome Cliente")
         
         # Settore
-        settori_nomi = [s[1] for s in settori_db]
+        settori_nomi = [s['nome'] for s in settori_db]
         settore_sel = st.selectbox("Settore Cliente", settori_nomi)
         settore_id = None
         for s in settori_db:
-            if s[1] == settore_sel:
-                settore_id = s[0]
+            if s['nome'] == settore_sel:
+                settore_id = s['id']
                 break
         
         # Project Manager
-        pm_nomi = [p[1] for p in pm_db]
+        pm_nomi = [p['nome'] for p in pm_db]
         pm_sel = st.selectbox("Project Manager", pm_nomi)
         pm_id = None
         for p in pm_db:
-            if p[1] == pm_sel:
-                pm_id = p[0]
+            if p['nome'] == pm_sel:
+                pm_id = p['id']
                 break
         
         # Recruiter
-        rec_nomi = [r[1] for r in rec_db]
+        rec_nomi = [r['nome'] for r in rec_db]
         rec_sel = st.selectbox("Sales Recruiter", rec_nomi)
         rec_id = None
         for r in rec_db:
-            if r[1] == rec_sel:
-                rec_id = r[0]
+            if r['nome'] == rec_sel:
+                rec_id = r['id']
                 break
         
         data_inizio_str = st.text_input("Data di Inizio (GG/MM/AAAA)", 
@@ -467,7 +480,7 @@ elif scelta == "Dashboard":
 
             # Filtro per Anno
             st.markdown("### Filtro per Anno")
-            anni_disponibili = sorted(df['data_inizio_dt'].dt.year.dropna().unique())
+            anni_disponibili = sorted(df['effective_start_date'].dt.year.dropna().unique())
             if len(anni_disponibili) == 0:
                 st.warning("Nessun dato disponibile per i filtri.")
                 st.stop()
@@ -484,8 +497,8 @@ elif scelta == "Dashboard":
                 st.stop()
 
             df_filtered = df[
-                (df['data_inizio_dt'] >= pd.Timestamp(start_date)) &
-                (df['data_inizio_dt'] <= pd.Timestamp(end_date))
+                (df['effective_start_date'] >= pd.Timestamp(start_date)) &
+                (df['effective_start_date'] <= pd.Timestamp(end_date))
             ]
 
             if df_filtered.empty:
@@ -497,29 +510,29 @@ elif scelta == "Dashboard":
                 st.metric("Tempo Medio Globale (giorni)", round(tempo_medio_globale,2))
 
                 # Tempo medio per recruiter
-                rec_media = df_comp.groupby('sales_recruiter')['tempo_totale'].mean().reset_index()
-                rec_media['tempo_totale'] = rec_media['tempo_totale'].fillna(0).round(2)
+                rec_media = df_comp.groupby('sales_recruiter')['tempo_totale'].mean().reset_index(name='tempo_medio')
+                rec_media['tempo_medio'] = rec_media['tempo_medio'].fillna(0).round(2)
                 fig_rec = px.bar(
                     rec_media,
                     x='sales_recruiter',
-                    y='tempo_totale',
-                    labels={'tempo_totale':'Giorni Medi'},
+                    y='tempo_medio',
+                    labels={'tempo_medio':'Giorni Medi'},
                     title='Tempo Medio di Chiusura per Recruiter',
-                    color='tempo_totale',  # Aggiunta di colore per stile
+                    color='tempo_medio',  # Aggiunta di colore per stile
                     color_continuous_scale='Blues'
                 )
                 st.plotly_chart(fig_rec, use_container_width=True)
 
                 # Tempo medio per settore
-                sett_media = df_comp.groupby('settore')['tempo_totale'].mean().reset_index()
-                sett_media['tempo_totale'] = sett_media['tempo_totale'].fillna(0).round(2)
+                sett_media = df_comp.groupby('settore')['tempo_totale'].mean().reset_index(name='tempo_medio')
+                sett_media['tempo_medio'] = sett_media['tempo_medio'].fillna(0).round(2)
                 fig_sett = px.bar(
                     sett_media,
                     x='settore',
-                    y='tempo_totale',
-                    labels={'tempo_totale':'Giorni Medi'},
+                    y='tempo_medio',
+                    labels={'tempo_medio':'Giorni Medi'},
                     title='Tempo Medio di Chiusura per Settore',
-                    color='tempo_totale',
+                    color='tempo_medio',
                     color_continuous_scale='Blues'
                 )
                 st.plotly_chart(fig_sett, use_container_width=True)
@@ -570,18 +583,17 @@ elif scelta == "Dashboard":
             st.subheader("Progetti che si chiuderanno nei prossimi giorni/settimane")
             st.write("""
                 Escludiamo i progetti che hanno tempo_previsto=0 (non impostato).
-                Calcoliamo la data di fine calcolata = data_inizio + tempo_previsto (giorni).
+                Calcoliamo la data di fine calcolata = effective_start_date + tempo_previsto (giorni).
             """)
 
-            # In carica_dati_completo() abbiamo convertito tempo_previsto in int
+            # Utilizza 'effective_start_date' invece di solo 'data_inizio'
             df_ok = df[(df['tempo_previsto'].notna()) & (df['tempo_previsto'] > 0)]
-            df_ok['fine_calcolata'] = pd.to_datetime(df_ok['data_inizio'], errors='coerce') + \
-                                      pd.to_timedelta(df_ok['tempo_previsto'], unit='D')
+            df_ok['fine_calcolata'] = df_ok['effective_start_date'] + pd.to_timedelta(df_ok['tempo_previsto'], unit='D')
 
             df_incorso = df_ok[df_ok['stato_progetto'] == 'In corso'].copy()
 
             st.subheader("Mostriamo i Progetti In Corso con tempo_previsto > 0")
-            st.dataframe(df_incorso[['cliente','stato_progetto','data_inizio','tempo_previsto','fine_calcolata','sales_recruiter']])
+            st.dataframe(df_incorso[['cliente','stato_progetto','effective_start_date','tempo_previsto','fine_calcolata','sales_recruiter']])
 
             st.write("**Vuoi vedere quali progetti si chiuderanno entro X giorni da oggi?**")
             orizzonte_giorni = st.number_input("Seleziona i giorni di orizzonte", value=14, min_value=1)
@@ -625,7 +637,7 @@ elif scelta == "Dashboard":
                 Esempio: 4 stelle => 300€, 5 stelle => 500€.
             """)
             st.markdown("### Filtro per Anno")
-            anni_disponibili_bonus = sorted(df['data_inizio_dt'].dt.year.dropna().unique())
+            anni_disponibili_bonus = sorted(df['recensione_data_dt'].dt.year.dropna().unique())
             if len(anni_disponibili_bonus) == 0:
                 st.warning("Nessun dato disponibile per il filtro dei bonus.")
                 st.stop()
@@ -757,7 +769,7 @@ elif scelta == "Dashboard":
             st.subheader("Classifica (Matplotlib)")
 
             st.markdown("### Filtro per Anno")
-            anni_leader = sorted(df['data_inizio_dt'].dt.year.dropna().unique())
+            anni_leader = sorted(df['effective_start_date'].dt.year.dropna().unique())
             if len(anni_leader) == 0:
                 st.warning("Nessun dato disponibile per il leaderboard.")
                 st.stop()
@@ -774,8 +786,8 @@ elif scelta == "Dashboard":
                 st.stop()
 
             df_leader_filtered = df[
-                (df['data_inizio_dt'] >= pd.Timestamp(start_date_leader)) &
-                (df['data_inizio_dt'] <= pd.Timestamp(end_date_leader))
+                (df['effective_start_date'] >= pd.Timestamp(start_date_leader)) &
+                (df['effective_start_date'] <= pd.Timestamp(end_date_leader))
             ]
 
             st.write(f"Anno in analisi: {anno_leader}")
@@ -824,8 +836,8 @@ elif scelta == "Dashboard":
             st.markdown("**2) Recruiter più veloce (Tempo Medio)**")
             df_comp = df_leader_filtered[
                 (df_leader_filtered['stato_progetto'] == 'Completato') &
-                (df_leader_filtered['data_inizio_dt'] >= pd.Timestamp(start_date_leader)) &
-                (df_leader_filtered['data_inizio_dt'] <= pd.Timestamp(end_date_leader))
+                (df_leader_filtered['effective_start_date'] >= pd.Timestamp(start_date_leader)) &
+                (df_leader_filtered['effective_start_date'] <= pd.Timestamp(end_date_leader))
             ].copy()
             veloce = df_comp.groupby('sales_recruiter')['tempo_totale'].mean().reset_index()
             veloce['tempo_totale'] = veloce['tempo_totale'].fillna(0)
