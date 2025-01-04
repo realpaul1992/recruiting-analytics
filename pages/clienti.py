@@ -421,11 +421,9 @@ with tab1:
                 df_risultati['sales_recruiter'] = df_risultati['sales_recruiter_id'].map(recruiters_dict)
 
                 # Format date
-                df_risultati['data_inizio'] = df_risultati['data_inizio'].apply(format_date_display)
-                df_risultati['data_fine'] = df_risultati['data_fine'].apply(format_date_display)
-                df_risultati['recensione_data'] = df_risultati['recensione_data'].apply(format_date_display)
-                df_risultati['start_date'] = df_risultati['start_date'].apply(format_date_display)
-                df_risultati['end_date'] = df_risultati['end_date'].apply(format_date_display)
+                for col in ['data_inizio', 'data_fine', 'recensione_data', 'start_date', 'end_date']:
+                    if col in df_risultati.columns:
+                        df_risultati[col] = df_risultati[col].apply(format_date_display)
 
                 df_risultati['stato_progetto'] = df_risultati['stato_progetto'].fillna("")
                 df_risultati['recensione_stelle'] = df_risultati['recensione_stelle'].fillna(0).astype(int)
@@ -536,7 +534,7 @@ with tab1:
                 numero_venditori = st.number_input("Numero di Venditori da Inserire", min_value=0, value=int(number_recruiters_existing))
 
                 # Recensione (Stelle)
-                rec_stelle_agg = st.selectbox("Recensione (Stelle)", [0,1,2,3,4,5], index=recensione_stelle_existing)
+                rec_stelle_agg = st.selectbox("Recensione (Stelle)", [0,1,2,3,4,5], index=int(recensione_stelle_existing))
 
                 # Data Recensione
                 if rec_stelle_agg > 0:
@@ -654,11 +652,9 @@ with tab1:
             df_tutti_clienti['sales_recruiter'] = df_tutti_clienti['sales_recruiter_id'].map(recruiters_dict).fillna("Sconosciuto")
 
             # Format date
-            df_tutti_clienti['data_inizio'] = df_tutti_clienti['data_inizio'].apply(format_date_display)
-            df_tutti_clienti['data_fine'] = df_tutti_clienti['data_fine'].apply(format_date_display)
-            df_tutti_clienti['recensione_data'] = df_tutti_clienti['recensione_data'].apply(format_date_display)
-            df_tutti_clienti['start_date'] = df_tutti_clienti['start_date'].apply(format_date_display)
-            df_tutti_clienti['end_date'] = df_tutti_clienti['end_date'].apply(format_date_display)
+            for col in ['data_inizio', 'data_fine', 'recensione_data', 'start_date', 'end_date']:
+                if col in df_tutti_clienti.columns:
+                    df_tutti_clienti[col] = df_tutti_clienti[col].apply(format_date_display)
 
             df_tutti_clienti['stato_progetto'] = df_tutti_clienti['stato_progetto'].fillna("")
             df_tutti_clienti['recensione_stelle'] = df_tutti_clienti['recensione_stelle'].fillna(0).astype(int)
@@ -684,11 +680,12 @@ with tab2:
     with st.form("form_inserisci_progetto_continuativo"):
         # Nome Cliente: selezionato dalla lista esistente
         clienti_db = carica_clienti_db()
-        if not clienti_db:
+        if clienti_db:
+            client_names = [c['cliente'] for c in clienti_db]
+            cliente_sel = st.selectbox("Nome Cliente", options=client_names)
+        else:
             st.error("Nessun cliente disponibile. Aggiungi un cliente prima di inserire un progetto continuativo.")
             st.stop()
-        client_names = [c['cliente'] for c in clienti_db]
-        cliente_sel = st.selectbox("Nome Cliente", options=client_names)
 
         # Ottieni settore_id basato sul cliente selezionato
         settore_id = None
@@ -784,11 +781,9 @@ with tab2:
             df_continuativi['sales_recruiter'] = df_continuativi['sales_recruiter_id'].map(recruiters_dict).fillna("Sconosciuto")
 
             # Format date
-            df_continuativi['data_inizio'] = df_continuativi['data_inizio'].apply(format_date_display)
-            df_continuativi['data_fine'] = df_continuativi['data_fine'].apply(format_date_display)
-            df_continuativi['recensione_data'] = df_continuativi['recensione_data'].apply(format_date_display)
-            df_continuativi['start_date'] = df_continuativi['start_date'].apply(format_date_display)
-            df_continuativi['end_date'] = df_continuativi['end_date'].apply(format_date_display)
+            for col in ['data_inizio', 'data_fine', 'recensione_data', 'start_date', 'end_date']:
+                if col in df_continuativi.columns:
+                    df_continuativi[col] = df_continuativi[col].apply(format_date_display)
 
             df_continuativi['stato_progetto'] = df_continuativi['stato_progetto'].fillna("")
             df_continuativi['recensione_stelle'] = df_continuativi['recensione_stelle'].fillna(0).astype(int)
