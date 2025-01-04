@@ -224,7 +224,7 @@ def inserisci_progetto_continuativo(
         # Controllo che settore_id non sia None
         if settore_id is None:
             raise ValueError("settore_id non può essere None. Verifica che il cliente selezionato abbia un settore assegnato.")
-        
+
         c.execute(query, (
             cliente,
             settore_id,
@@ -364,6 +364,50 @@ def restore_from_zip(zip_file):
         st.success("Ripristino completato con successo da ZIP.")
 
 ####################################
+# FUNZIONI PER GESTIRE LA RETENTION
+#######################################
+
+def carica_candidati_progetti_una_tantum():
+    """
+    Carica i candidati associati ai progetti una tantum.
+    """
+    conn = get_connection()
+    c = conn.cursor()
+    query = """
+        SELECT 
+            c.id,
+            c.progetto_id,
+            c.recruiter_id,
+            c.candidato_nome,
+            c.data_inserimento,
+            c.data_dimissioni,
+            p.cliente
+        FROM candidati c
+        JOIN progetti p ON c.progetto_id = p.id
+        WHERE p.is_continuative = 0
+    """
+    c.execute(query)
+    risultati = c.fetchall()
+    conn.close()
+    return pd.DataFrame(risultati)
+
+def aggiorna_dimissioni_candidato(progetto_id, recruiter_id, data_dimissioni):
+    """
+    Aggiorna la data di dimissione di un candidato specifico.
+    """
+    conn = get_connection()
+    c = conn.cursor()
+    query = """
+        UPDATE candidati
+        SET data_dimissioni = %s
+        WHERE progetto_id = %s AND recruiter_id = %s
+    """
+    c.execute(query, (data_dimissioni, progetto_id, recruiter_id))
+    conn.commit()
+    conn.close()
+    backup_database()
+
+####################################
 # CONFIG E LAYOUT
 #######################################
 
@@ -393,7 +437,7 @@ if 'show_confirm_delete' not in st.session_state:
 st.title("Gestione Clienti")
 
 # Creiamo le Tabs per differenziare le sezioni
-tab1, tab2 = st.tabs(["Gestione Progetti", "Gestione Progetti Continuativi"])
+tab1, tab2, tab3 = st.tabs(["Gestione Progetti", "Gestione Progetti Continuativi", "Retention"])
 
 ####################################
 # TAB 1: Gestione Progetti (Tutti i Progetti)
