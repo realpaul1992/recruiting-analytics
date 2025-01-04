@@ -221,6 +221,10 @@ def inserisci_progetto_continuativo(
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
     """
     try:
+        # Controllo che settore_id non sia None
+        if settore_id is None:
+            raise ValueError("settore_id non può essere None. Verifica che il cliente selezionato abbia un settore assegnato.")
+        
         c.execute(query, (
             cliente,
             settore_id,
@@ -236,6 +240,9 @@ def inserisci_progetto_continuativo(
         st.success("Progetto continuativo inserito con successo!")
     except pymysql.err.IntegrityError as e:
         st.error(f"Errore durante l'inserimento del progetto: {e}")
+        conn.rollback()
+    except ValueError as ve:
+        st.error(f"Errore: {ve}")
         conn.rollback()
     finally:
         conn.close()
@@ -685,8 +692,13 @@ with tab2:
         settore_id = None
         for c in clienti_db:
             if c['cliente'] == cliente_sel:
-                settore_id = c['settore_id']  # Correzione: utilizzare direttamente settore_id
+                settore_id = c['settore_id']  # Utilizza direttamente settore_id
                 break
+
+        # Verifica che settore_id sia stato trovato
+        if settore_id is None:
+            st.error("Errore: settore_id non trovato per il cliente selezionato.")
+            st.stop()
 
         # Project Manager
         pm_nomi = [p['nome'] for p in project_managers_db]
