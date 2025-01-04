@@ -252,7 +252,11 @@ def carica_progetti_continuativi_db():
 
 def carica_dati_completo(include_continuativi=True):
     """Carica tutti i progetti dal database. Include o esclude progetti continuativi."""
-    return cerca_progetti(include_continuativi=include_continuativi)
+    risultati = cerca_progetti(include_continuativi=include_continuativi)
+    if risultati:
+        return pd.DataFrame(risultati)
+    else:
+        return pd.DataFrame()
 
 ####################################
 # GESTIONE BACKUP in ZIP (Esportazione + Ripristino)
@@ -407,13 +411,7 @@ with tab1:
             id_progetto = int(id_progetto_str) if id_progetto_str.isdigit() else None
             risultati = cerca_progetti(id_progetto=id_progetto, nome_cliente=nome_cliente.strip() or None, include_continuativi=True)
             if risultati:
-                columns = [
-                    'id','cliente','settore_id','project_manager_id','sales_recruiter_id',
-                    'stato_progetto','data_inizio','data_fine','start_date','end_date',
-                    'number_recruiters','recensione_stelle','recensione_data','tempo_previsto',
-                    'is_continuative'
-                ]
-                df_risultati = pd.DataFrame(risultati, columns=columns)
+                df_risultati = pd.DataFrame(risultati)
 
                 # Mappa ID -> nomi
                 df_risultati['settore'] = df_risultati['settore_id'].map(settori_dict)
@@ -632,6 +630,7 @@ with tab1:
                 if submit_delete:
                     st.session_state.show_confirm_delete = True
 
+    # Conferma eliminazione
     if st.session_state.show_confirm_delete and st.session_state.progetto_selezionato:
         st.warning("Sei sicuro di voler eliminare questo progetto? Questa azione è irreversibile.")
         conferma_delete = st.button("Conferma Eliminazione")
@@ -652,6 +651,7 @@ with tab1:
             df_tutti_clienti['project_manager'] = df_tutti_clienti['project_manager_id'].map(project_managers_dict).fillna("Sconosciuto")
             df_tutti_clienti['sales_recruiter'] = df_tutti_clienti['sales_recruiter_id'].map(recruiters_dict).fillna("Sconosciuto")
 
+            # Format date
             df_tutti_clienti['data_inizio'] = df_tutti_clienti['data_inizio'].apply(format_date_display)
             df_tutti_clienti['data_fine'] = df_tutti_clienti['data_fine'].apply(format_date_display)
             df_tutti_clienti['recensione_data'] = df_tutti_clienti['recensione_data'].apply(format_date_display)
@@ -732,8 +732,8 @@ with tab2:
         else:
             rec_data_input = None
 
-        # Tempo Previsto
-        tempo_previsto = st.number_input("Tempo Previsto (giorni)", min_value=0, value=0)
+        # Rimuovere Tempo Previsto come richiesto
+        # tempo_previsto = st.number_input("Tempo Previsto (giorni)", min_value=0, value=0)
 
         submit_continuative = st.form_submit_button("Inserisci Progetto Continuativo")
 
@@ -762,7 +762,7 @@ with tab2:
                 end_date=data_fine_parsed,
                 number_recruiters=numero_venditori,
                 recensione_stelle=rec_stelle,
-                tempo_previsto=tempo_previsto,
+                tempo_previsto=0,  # Tempo previsto rimosso
                 recensione_data=rec_data_input
             )
             st.session_state.progetto_selezionato = None  # Reset dello stato di selezione
@@ -771,11 +771,11 @@ with tab2:
     st.subheader("Visualizza Progetti Continuativi Esistenti")
     if st.button("Mostra Progetti Continuativi"):
         progetti_continuativi = carica_dati_completo(include_continuativi=True)
-        progetti_continuativi = [p for p in progetti_continuativi if p['is_continuative'] == 1]
-        if not progetti_continuativi:
+        progetti_continuativi = progetti_continuativi[progetti_continuativi['is_continuative'] == 1]
+        if progetti_continuativi.empty:
             st.info("Nessun progetto continuativo presente nel DB.")
         else:
-            df_continuativi = pd.DataFrame(progetti_continuativi)
+            df_continuativi = progetti_continuativi.copy()
             df_continuativi['settore'] = df_continuativi['settore_id'].map(settori_dict).fillna("Sconosciuto")
             df_continuativi['project_manager'] = df_continuativi['project_manager_id'].map(project_managers_dict).fillna("Sconosciuto")
             df_continuativi['sales_recruiter'] = df_continuativi['sales_recruiter_id'].map(recruiters_dict).fillna("Sconosciuto")
