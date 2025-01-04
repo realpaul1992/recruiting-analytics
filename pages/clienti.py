@@ -135,7 +135,7 @@ def aggiorna_progetto(
 
     # Formatta 'stato_progetto' correttamente
     if stato_progetto:
-        stato_progetto = stato_progetto.strip().title()
+        stato_progetto = stato_progetto.strip()
 
     query = """
         UPDATE progetti
@@ -204,7 +204,7 @@ def inserisci_progetto_continuativo(
 
     # Formatta 'stato_progetto' correttamente
     if stato_progetto:
-        stato_progetto = stato_progetto.strip().title()
+        stato_progetto = stato_progetto.strip()
 
     query = """
         INSERT INTO progetti (
@@ -483,6 +483,8 @@ with tab1:
 
                 # Settore Cliente
                 settori_nomi = [s['nome'] for s in settori_db]
+                if settore_attuale not in settori_nomi:
+                    settori_nomi.append(settore_attuale)  # Aggiungi lo stato attuale se non presente
                 settore_scelto = st.selectbox(
                     "Settore Cliente",
                     options=settori_nomi,
@@ -492,6 +494,8 @@ with tab1:
 
                 # Project Manager
                 pm_nomi = [p['nome'] for p in project_managers_db]
+                if pm_attuale not in pm_nomi:
+                    pm_nomi.append(pm_attuale)  # Aggiungi lo stato attuale se non presente
                 pm_sel = st.selectbox(
                     "Project Manager",
                     options=pm_nomi,
@@ -501,6 +505,8 @@ with tab1:
 
                 # Sales Recruiter
                 rec_nomi = [r['nome'] for r in recruiters_db]
+                if rec_attuale not in rec_nomi:
+                    rec_nomi.append(rec_attuale)  # Aggiungi lo stato attuale se non presente
                 rec_sel = st.selectbox(
                     "Sales Recruiter",
                     options=rec_nomi,
@@ -509,10 +515,16 @@ with tab1:
                 rec_id_agg = recruiters_dict_reverse.get(rec_sel, None)
 
                 # Stato Progetto
+                # *** Correzione Qui ***
+                # Assicurati che 'stato_attuale' sia correttamente trovato nella lista STATI_PROGETTO
+                # E aggiungi eventualmente 'stato_attuale' se non presente
+                if stato_attuale not in STATI_PROGETTO:
+                    STATI_PROGETTO.append(stato_attuale)
+
                 stato_agg = st.selectbox(
                     "Stato Progetto",
                     [""] + STATI_PROGETTO,
-                    index=STATI_PROGETTO.index(stato_attuale) if stato_attuale in STATI_PROGETTO else 0
+                    index=STATI_PROGETTO.index(stato_attuale) + 1 if stato_attuale in STATI_PROGETTO else 0
                 )
                 if stato_agg == "":
                     stato_agg = None
@@ -749,7 +761,7 @@ with tab2:
 
             # Formatta 'stato_progetto' correttamente
             if stato_progetto:
-                stato_progetto = stato_progetto.strip().title()
+                stato_progetto = stato_progetto.strip()
 
             inserisci_progetto_continuativo(
                 cliente=cliente_sel.strip(),
