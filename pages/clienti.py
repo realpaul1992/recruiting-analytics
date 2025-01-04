@@ -410,7 +410,9 @@ with tab1:
         else:
             id_progetto = int(id_progetto_str) if id_progetto_str.isdigit() else None
             risultati = cerca_progetti(id_progetto=id_progetto, nome_cliente=nome_cliente.strip() or None, include_continuativi=True)
-            if risultati:
+            if not risultati:
+                st.info("Nessun progetto trovato con i criteri inseriti.")
+            else:
                 df_risultati = pd.DataFrame(risultati)
 
                 # Mappa ID -> nomi
@@ -420,7 +422,7 @@ with tab1:
 
                 # Format date
                 df_risultati['data_inizio'] = df_risultati['data_inizio'].apply(format_date_display)
-                df_risultati['data_fine']   = df_risultati['data_fine'].apply(format_date_display)
+                df_risultati['data_fine'] = df_risultati['data_fine'].apply(format_date_display)
                 df_risultati['recensione_data'] = df_risultati['recensione_data'].apply(format_date_display)
                 df_risultati['start_date'] = df_risultati['start_date'].apply(format_date_display)
                 df_risultati['end_date'] = df_risultati['end_date'].apply(format_date_display)
@@ -438,8 +440,6 @@ with tab1:
                     options=df_risultati['id'].tolist()
                 )
                 st.session_state.progetto_selezionato = progetto_scelto
-            else:
-                st.info("Nessun progetto trovato con i criteri inseriti.")
 
     st.header("Aggiorna / Elimina Progetto Selezionato")
     if st.session_state.progetto_selezionato:
@@ -536,12 +536,14 @@ with tab1:
                 numero_venditori = st.number_input("Numero di Venditori da Inserire", min_value=0, value=int(number_recruiters_existing))
 
                 # Recensione (Stelle)
-                rec_stelle_agg = st.selectbox("Recensione (Stelle)", [0,1,2,3,4,5], index=rec_stelle_existing)
+                rec_stelle_agg = st.selectbox("Recensione (Stelle)", [0,1,2,3,4,5], index=recensione_stelle_existing)
 
                 # Data Recensione
                 if rec_stelle_agg > 0:
                     if recensione_data_existing:
                         rec_data_val = parse_date(recensione_data_existing)
+                        if not rec_data_val:
+                            rec_data_val = datetime.today().date()
                     else:
                         rec_data_val = datetime.today().date()
                     rec_data_input = st.date_input("Data Recensione", value=rec_data_val)
@@ -682,6 +684,9 @@ with tab2:
     with st.form("form_inserisci_progetto_continuativo"):
         # Nome Cliente: selezionato dalla lista esistente
         clienti_db = carica_clienti_db()
+        if not clienti_db:
+            st.error("Nessun cliente disponibile. Aggiungi un cliente prima di inserire un progetto continuativo.")
+            st.stop()
         client_names = [c['cliente'] for c in clienti_db]
         cliente_sel = st.selectbox("Nome Cliente", options=client_names)
 
@@ -732,9 +737,7 @@ with tab2:
         else:
             rec_data_input = None
 
-        # Rimuovere Tempo Previsto come richiesto
-        # tempo_previsto = st.number_input("Tempo Previsto (giorni)", min_value=0, value=0)
-
+        # Pulsante di invio
         submit_continuative = st.form_submit_button("Inserisci Progetto Continuativo")
 
         if submit_continuative:
