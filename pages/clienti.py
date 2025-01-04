@@ -271,17 +271,22 @@ def inserisci_candidato(progetto_id, recruiter_id, candidato_nome, data_inserime
             recruiter_id,
             candidato_nome,
             data_inserimento,
-            data_dimissioni
+            data_dimissioni,
+            data_placement
         )
-        VALUES (%s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s)
     """
     try:
+        # Imposta 'data_placement' uguale a 'data_inserimento'
+        data_placement = data_inserimento.strftime('%Y-%m-%d') if data_inserimento else None
+        
         c.execute(query, (
             progetto_id,
             recruiter_id,
             candidato_nome,
             data_inserimento.strftime('%Y-%m-%d') if data_inserimento else None,
-            data_dimissioni.strftime('%Y-%m-%d') if data_dimissioni else None
+            data_dimissioni.strftime('%Y-%m-%d') if data_dimissioni else None,
+            data_placement
         ))
         conn.commit()
         st.success("Candidato inserito con successo!")
@@ -300,7 +305,8 @@ def carica_candidati_progetto(progetto_id):
             c.id,
             c.candidato_nome,
             c.data_inserimento,
-            c.data_dimissioni
+            c.data_dimissioni,
+            c.data_placement
         FROM candidati c
         WHERE c.progetto_id = %s
         ORDER BY c.data_inserimento DESC
@@ -540,7 +546,7 @@ def calcola_retention(df, start_date, end_date):
 
 ####################################
 # CONFIG E LAYOUT
-#######################################
+####################################
 # Lista degli stati progetto con "In corso" correttamente capitalizzato
 STATI_PROGETTO = ["Completato", "In corso", "Bloccato"]
 
@@ -851,78 +857,6 @@ with tab1:
                 mime="text/csv"
             )
 
-    # Aggiunta del Form per Inserimento Candidati
-    st.header("Aggiungi Candidato a un Progetto")
-
-    with st.form("form_inserisci_candidato"):
-        # Seleziona Progetto
-        progetti = carica_dati_completo(include_continuativi=False)
-        progetti = progetti[progetti['is_continuative'] == 0]  # Escludi progetti continuativi
-        if progetti.empty:
-            st.error("Nessun progetto disponibile. Inserisci un progetto prima di aggiungere candidati.")
-            st.stop()
-        else:
-            progetti_nomi = progetti['cliente'].tolist()
-            progetto_selezionato_nome = st.selectbox("Seleziona Progetto", options=progetti_nomi)
-            # Ottieni il progetto_id e recruiter_id basato sul nome selezionato
-            progetto_selezionato = progetti[progetti['cliente'] == progetto_selezionato_nome].iloc[0]
-            progetto_id = progetto_selezionato['id']
-            recruiter_id = progetto_selezionato['sales_recruiter_id']
-
-        # Visualizza il recruiter associato
-        recruiter_nome = recruiters_dict.get(recruiter_id, "Sconosciuto")
-        st.write(f"**Recruiter Associato:** {recruiter_nome}")
-
-        # Inserisci Nome e Cognome Candidato
-        candidato_nome = st.text_input("Nome e Cognome Candidato")
-
-        # Inserisci Data Inserimento Candidato
-        data_inserimento_candidato = st.date_input("Data Inserimento Candidato", value=datetime.today().date())
-
-        # Inserisci Data Dimissioni (opzionale)
-        data_dimissioni_candidato = st.date_input("Data Dimissioni Candidato (se applicabile)", value=None, key="dimissioni_candidato")
-        # Permetti di lasciare vuoto
-        if not st.session_state.get("dimissioni_candidato"):
-            data_dimissioni_candidato = None
-        else:
-            data_dimissioni_candidato = st.session_state.dimissioni_candidato
-
-        # Pulsante di invio
-        submit_candidato = st.form_submit_button("Aggiungi Candidato")
-
-        if submit_candidato:
-            if not candidato_nome.strip():
-                st.error("Il campo 'Nome e Cognome Candidato' è obbligatorio.")
-            else:
-                inserisci_candidato(
-                    progetto_id=progetto_id,
-                    recruiter_id=recruiter_id,
-                    candidato_nome=candidato_nome.strip(),
-                    data_inserimento=data_inserimento_candidato,
-                    data_dimissioni=data_dimissioni_candidato
-                )
-
-    # Opzionale: Visualizza Candidati di un Progetto
-    st.header("Visualizza Candidati di un Progetto")
-
-    with st.form("form_visualizza_candidati"):
-        progetto_visualizza_nome = st.selectbox("Seleziona Progetto per Visualizzare Candidati", options=progetti_nomi)
-        submit_visualizza = st.form_submit_button("Visualizza Candidati")
-
-    if submit_visualizza:
-        progetto_visualizza = progetti[progetti['cliente'] == progetto_visualizza_nome].iloc[0]
-        progetto_visualizza_id = progetto_visualizza['id']
-        candidati = carica_candidati_progetto(progetto_visualizza_id)
-        if not candidati:
-            st.info("Nessun candidato associato a questo progetto.")
-        else:
-            df_candidati = pd.DataFrame(candidati)
-            # Format date
-            df_candidati['data_inserimento'] = df_candidati['data_inserimento'].apply(format_date_display)
-            df_candidati['data_dimissioni'] = df_candidati['data_dimissioni'].apply(format_date_display)
-            st.write(f"**Candidati per il Progetto: {progetto_visualizza_nome}**")
-            st.dataframe(df_candidati[['id', 'candidato_nome', 'data_inserimento', 'data_dimissioni']])
-
 ####################################
 # TAB 2: Gestione Progetti Continuativi
 ####################################
@@ -1055,66 +989,85 @@ with tab2:
 # TAB 3: Retention
 ####################################
 with tab3:
-    st.header("Analisi della Retention dei Clienti")
+    st.header("Gestione Candidati")
 
-    st.subheader("Filtro per Intervallo di Date")
-    with st.form("form_retention_filter"):
-        start_date_retention = st.date_input("Data Inizio", value=datetime.today().date().replace(year=datetime.today().year -1))
-        end_date_retention = st.date_input("Data Fine", value=datetime.today().date())
-        submit_retention = st.form_submit_button("Calcola Retention")
-
-    if submit_retention:
-        if start_date_retention > end_date_retention:
-            st.error("La Data Inizio non può essere successiva alla Data Fine.")
+    st.subheader("Aggiungi Candidato a un Progetto")
+    with st.form("form_inserisci_candidato"):
+        # Seleziona Progetto
+        progetti = carica_dati_completo(include_continuativi=False)
+        progetti = progetti[progetti['is_continuative'] == 0]  # Escludi progetti continuativi
+        if progetti.empty:
+            st.error("Nessun progetto disponibile. Inserisci un progetto prima di aggiungere candidati.")
+            st.stop()
         else:
-            df_completo = carica_dati_completo(include_continuativi=False)
-            if df_completo.empty:
-                st.info("Nessun progetto presente nel DB.")
-            else:
-                retention_df = calcola_retention(df_completo, start_date_retention, end_date_retention)
-                if retention_df.empty:
-                    st.info("Nessun dato disponibile per l'intervallo di date selezionato.")
-                else:
-                    st.write(f"**Intervallo di Date:** {start_date_retention.strftime('%d/%m/%Y')} - {end_date_retention.strftime('%d/%m/%Y')}")
-                    st.write(f"**Numero Totale di Nuovi Clienti:** {retention_df['total_new_clients'].iloc[0]}")
+            progetti_nomi = progetti['cliente'].tolist()
+            progetto_selezionato_nome = st.selectbox("Seleziona Progetto", options=progetti_nomi)
+            # Ottieni il progetto_id e recruiter_id basato sul nome selezionato
+            progetto_selezionato = progetti[progetti['cliente'] == progetto_selezionato_nome].iloc[0]
+            progetto_id = progetto_selezionato['id']
+            recruiter_id = progetto_selezionato['sales_recruiter_id']
 
-                    st.write("**Tassi di Retention Mensili:**")
-                    st.dataframe(retention_df[['year_month', 'retained_clients', 'total_new_clients', 'retention_rate']])
+        # Visualizza il recruiter associato
+        recruiter_nome = recruiters_dict.get(recruiter_id, "Sconosciuto")
+        st.write(f"**Recruiter Associato:** {recruiter_nome}")
 
-                    # Grafico della Retention
-                    fig_retention = px.line(
-                        retention_df,
-                        x='year_month',
-                        y='retention_rate',
-                        markers=True,
-                        labels={'year_month': 'Mese', 'retention_rate': 'Tasso di Retention (%)'},
-                        title='Tassi di Retention Mensili'
-                    )
-                    st.plotly_chart(fig_retention, use_container_width=True)
+        # Inserisci Nome e Cognome Candidato
+        candidato_nome = st.text_input("Nome e Cognome Candidato")
 
-    st.markdown("---")
-    st.subheader("Grafico della Retention Complessiva")
+        # Inserisci Data Inserimento Candidato
+        data_inserimento_candidato = st.date_input("Data Inserimento Candidato", value=datetime.today().date())
 
-    if st.button("Mostra Grafico Retention"):
-        df_completo = carica_dati_completo(include_continuativi=False)
-        if df_completo.empty:
-            st.info("Nessun progetto presente nel DB.")
+        # Inserisci Data Dimissioni (opzionale)
+        data_dimissioni_candidato = st.date_input("Data Dimissioni Candidato (se applicabile)", value=None, key="dimissioni_candidato")
+        # Permetti di lasciare vuoto
+        if not st.session_state.get("dimissioni_candidato"):
+            data_dimissioni_candidato = None
         else:
-            retention_summary = calcola_retention(df_completo, date(2000,1,1), date.today())
-            if retention_summary.empty:
-                st.info("Nessun dato disponibile per la retention.")
+            data_dimissioni_candidato = st.session_state.dimissioni_candidato
+
+        # Pulsante di invio
+        submit_candidato = st.form_submit_button("Aggiungi Candidato")
+
+        if submit_candidato:
+            if not candidato_nome.strip():
+                st.error("Il campo 'Nome e Cognome Candidato' è obbligatorio.")
             else:
-                fig_overall = px.bar(
-                    retention_summary,
-                    x='year_month',
-                    y='retention_rate',
-                    labels={'year_month': 'Mese', 'retention_rate': 'Tasso di Retention (%)'},
-                    title='Tasso di Retention Complessivo per Mese'
+                inserisci_candidato(
+                    progetto_id=progetto_id,
+                    recruiter_id=recruiter_id,
+                    candidato_nome=candidato_nome.strip(),
+                    data_inserimento=data_inserimento_candidato,
+                    data_dimissioni=data_dimissioni_candidato
                 )
-                st.plotly_chart(fig_overall, use_container_width=True)
+
+    st.write("---")
+    st.subheader("Visualizza Candidati di un Progetto")
+    with st.form("form_visualizza_candidati"):
+        progetto_visualizza_nome = st.selectbox("Seleziona Progetto per Visualizzare Candidati", options=progetti_nomi)
+        submit_visualizza = st.form_submit_button("Visualizza Candidati")
+
+    if submit_visualizza:
+        progetto_visualizza = progetti[progetti['cliente'] == progetto_visualizza_nome].iloc[0]
+        progetto_visualizza_id = progetto_visualizza['id']
+        candidati = carica_candidati_progetto(progetto_visualizza_id)
+        if not candidati:
+            st.info("Nessun candidato associato a questo progetto.")
+        else:
+            df_candidati = pd.DataFrame(candidati)
+            # Format date
+            df_candidati['data_inserimento'] = df_candidati['data_inserimento'].apply(format_date_display)
+            df_candidati['data_dimissioni'] = df_candidati['data_dimissioni'].apply(format_date_display)
+            df_candidati['data_placement'] = df_candidati['data_placement'].apply(format_date_display)
+            st.write(f"**Candidati per il Progetto: {progetto_visualizza_nome}**")
+            st.dataframe(df_candidati[['id', 'candidato_nome', 'data_inserimento', 'data_dimissioni', 'data_placement']])
+
+    # Rimuovere l'Analisi della Retention dei Clienti
+    # Tutto ciò che era precedentemente nella scheda Retention relativo all'analisi viene rimosso.
 
 ####################################
 # CODICE PER GESTIONE CLIENTI E PROGETTI CONTINUATIVI
 #######################################
+
+# Il resto del codice rimane invariato...
 
 # Se desideri aggiungere ulteriori funzionalità alla scheda Retention o altre schede, puoi estendere le funzioni sopra o aggiungere nuovi componenti all'interno delle rispettive schede.
