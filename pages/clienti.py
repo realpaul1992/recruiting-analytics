@@ -456,6 +456,10 @@ with tab1:
             rec_attuale = recruiters_dict.get(progetto['sales_recruiter_id'], "Sconosciuto")
             stato_attuale = progetto['stato_progetto'] if progetto['stato_progetto'] else STATI_PROGETTO[0]
 
+            # Correggi la capitalizzazione se necessario
+            if stato_attuale.lower() == "in corso":
+                stato_attuale = "In corso"
+
             # Preleva le date esistenti
             data_inizio_existing = progetto['data_inizio']
             data_inizio_formatted = format_date_display(data_inizio_existing) if data_inizio_existing else ""
@@ -484,8 +488,6 @@ with tab1:
 
                 # Settore Cliente
                 settori_nomi = [s['nome'] for s in settori_db]
-                if settore_attuale not in settori_nomi:
-                    settori_nomi.append(settore_attuale)  # Aggiungi lo stato attuale se non presente
                 settore_scelto = st.selectbox(
                     "Settore Cliente",
                     options=settori_nomi,
@@ -495,8 +497,6 @@ with tab1:
 
                 # Project Manager
                 pm_nomi = [p['nome'] for p in project_managers_db]
-                if pm_attuale not in pm_nomi:
-                    pm_nomi.append(pm_attuale)  # Aggiungi lo stato attuale se non presente
                 pm_sel = st.selectbox(
                     "Project Manager",
                     options=pm_nomi,
@@ -506,8 +506,6 @@ with tab1:
 
                 # Sales Recruiter
                 rec_nomi = [r['nome'] for r in recruiters_db]
-                if rec_attuale not in rec_nomi:
-                    rec_nomi.append(rec_attuale)  # Aggiungi lo stato attuale se non presente
                 rec_sel = st.selectbox(
                     "Sales Recruiter",
                     options=rec_nomi,
@@ -516,17 +514,6 @@ with tab1:
                 rec_id_agg = recruiters_dict_reverse.get(rec_sel, None)
 
                 # Stato Progetto
-                # *** Correzione Qui ***
-                # Assicurati che 'stato_attuale' sia correttamente trovato nella lista STATI_PROGETTO
-                # E aggiungi eventualmente 'stato_attuale' se non presente con la giusta capitalizzazione
-                if stato_attuale not in STATI_PROGETTO:
-                    # Trasforma 'stato_attuale' in base al valore
-                    if stato_attuale.lower() == "in corso":
-                        stato_attuale = "In corso"
-                    else:
-                        stato_attuale = stato_attuale.title()
-                    STATI_PROGETTO.append(stato_attuale)
-
                 stato_agg = st.selectbox(
                     "Stato Progetto",
                     [""] + STATI_PROGETTO,
@@ -803,6 +790,9 @@ with tab2:
             df_continuativi['recensione_stelle'] = df_continuativi['recensione_stelle'].fillna(0).astype(int)
             df_continuativi['tempo_previsto'] = df_continuativi['tempo_previsto'].fillna(0).astype(int)
             df_continuativi['number_recruiters'] = df_continuativi['number_recruiters'].fillna(0).astype(int)
+
+            # Rimuovi eventuali duplicati nella lista di stati_progetto
+            df_continuativi['stato_progetto'] = df_continuativi['stato_progetto'].apply(lambda x: "In corso" if x.lower() == "in corso" else x.title())
 
             st.write("**Progetti Continuativi Esistenti:**")
             st.dataframe(df_continuativi[['id', 'cliente', 'settore', 'project_manager', 'sales_recruiter', 'stato_progetto', 'data_inizio', 'data_fine', 'start_date', 'end_date', 'number_recruiters', 'recensione_stelle', 'tempo_previsto']])
