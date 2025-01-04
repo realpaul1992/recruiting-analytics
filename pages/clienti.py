@@ -192,10 +192,7 @@ def inserisci_progetto_continuativo(
     stato_progetto,
     start_date,
     end_date,
-    number_recruiters,
-    recensione_stelle,
-    tempo_previsto,
-    recensione_data=None
+    number_recruiters
 ):
     """Inserisce un nuovo progetto continuativo nel database."""
     conn = get_connection()
@@ -204,7 +201,6 @@ def inserisci_progetto_continuativo(
     # Converti le date in stringhe nel formato YYYY-MM-DD
     start_date_str = start_date.strftime('%Y-%m-%d') if start_date else None
     end_date_str = end_date.strftime('%Y-%m-%d') if end_date else None
-    recensione_data_str = recensione_data.strftime('%Y-%m-%d') if recensione_data else None
 
     # Formatta 'stato_progetto' correttamente
     if stato_progetto:
@@ -220,29 +216,28 @@ def inserisci_progetto_continuativo(
             start_date,
             end_date,
             number_recruiters,
-            recensione_stelle,
-            recensione_data,
-            tempo_previsto,
             is_continuative
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
     """
-    c.execute(query, (
-        cliente,
-        settore_id,
-        project_manager_id,
-        sales_recruiter_id,
-        stato_progetto,
-        start_date_str,
-        end_date_str,
-        number_recruiters,
-        recensione_stelle,
-        recensione_data_str,
-        tempo_previsto,
-        1  # is_continuative = True
-    ))
-    conn.commit()
-    conn.close()
+    try:
+        c.execute(query, (
+            cliente,
+            settore_id,
+            project_manager_id,
+            sales_recruiter_id,
+            stato_progetto,
+            start_date_str,
+            end_date_str,
+            number_recruiters,
+            1  # is_continuative = True
+        ))
+        conn.commit()
+    except pymysql.err.IntegrityError as e:
+        st.error(f"Errore durante l'inserimento del progetto: {e}")
+        conn.rollback()
+    finally:
+        conn.close()
 
     st.success("Progetto continuativo inserito con successo!")
 
@@ -469,10 +464,8 @@ with tab1:
 
             number_recruiters_existing = progetto['number_recruiters'] if progetto['number_recruiters'] else 0
 
-            recensione_stelle_existing = progetto['recensione_stelle'] if progetto['recensione_stelle'] else 0
-            recensione_data_existing = progetto['recensione_data']
-
-            tempo_previsto_existing = progetto['tempo_previsto'] if progetto['tempo_previsto'] else 0
+            # Rimosso recensione_stelle_existing e recensione_data_existing
+            # tempo_previsto was already removed in previous step
 
             with st.form("form_aggiorna_progetto"):
                 st.subheader("Aggiorna Progetto")
@@ -533,23 +526,7 @@ with tab1:
                 # Numero di Venditori da Inserire
                 numero_venditori = st.number_input("Numero di Venditori da Inserire", min_value=0, value=int(number_recruiters_existing))
 
-                # Recensione (Stelle)
-                rec_stelle_agg = st.selectbox("Recensione (Stelle)", [0,1,2,3,4,5], index=int(recensione_stelle_existing))
-
-                # Data Recensione
-                if rec_stelle_agg > 0:
-                    if recensione_data_existing:
-                        rec_data_val = parse_date(recensione_data_existing)
-                        if not rec_data_val:
-                            rec_data_val = datetime.today().date()
-                    else:
-                        rec_data_val = datetime.today().date()
-                    rec_data_input = st.date_input("Data Recensione", value=rec_data_val)
-                else:
-                    rec_data_input = None
-
-                # Tempo Previsto
-                tempo_previsto_agg = st.number_input("Tempo Previsto (giorni)", value=int(tempo_previsto_existing), min_value=0)
+                # Rimosso Recensione (Stelle) e Data Recensione
 
                 # Pulsanti
                 submit_update = st.form_submit_button("Aggiorna Progetto")
@@ -591,11 +568,6 @@ with tab1:
                             st.error("Data Fine Continuativo non valida (GG/MM/AAAA).")
                             st.stop()
 
-                    # Validazione della recensione
-                    if rec_stelle_agg > 0 and not rec_data_input:
-                        st.error("Se hai inserito stelle > 0, devi specificare la data recensione.")
-                        st.stop()
-
                     # Validazione dei campi selezionati
                     if settore_id_agg is None:
                         st.error(f"Settore '{settore_scelto}' non esiste nei dizionari.")
@@ -620,9 +592,9 @@ with tab1:
                         start_date=start_date_parsed,
                         end_date=end_date_parsed,
                         number_recruiters=numero_venditori,
-                        recensione_stelle=rec_stelle_agg,
-                        recensione_data=rec_data_input,
-                        tempo_previsto=tempo_previsto_agg
+                        recensione_stelle=0,  # Impostato a 0 poiché rimosso
+                        recensione_data=None,   # Impostato a None poiché rimosso
+                        tempo_previsto=0        # Impostato a 0 poiché rimosso
                     )
                     st.success(f"Progetto ID {st.session_state.progetto_selezionato} aggiornato con successo!")
                     st.session_state.progetto_selezionato = None
@@ -725,14 +697,7 @@ with tab2:
         # Numero di Venditori da Inserire
         numero_venditori = st.number_input("Numero di Venditori da Inserire", min_value=1, value=1)
 
-        # Recensione (Stelle)
-        rec_stelle = st.selectbox("Recensione (Stelle)", [0,1,2,3,4,5], index=0)
-
-        # Data Recensione
-        if rec_stelle > 0:
-            rec_data_input = st.date_input("Data Recensione", value=datetime.today().date())
-        else:
-            rec_data_input = None
+        # Rimosso Recensione (Stelle) e Data Recensione
 
         # Pulsante di invio
         submit_continuative = st.form_submit_button("Inserisci Progetto Continuativo")
@@ -760,10 +725,7 @@ with tab2:
                 stato_progetto=stato_progetto,
                 start_date=start_date_continuativo,
                 end_date=data_fine_parsed,
-                number_recruiters=numero_venditori,
-                recensione_stelle=rec_stelle,
-                tempo_previsto=0,  # Tempo previsto rimosso
-                recensione_data=rec_data_input
+                number_recruiters=numero_venditori
             )
             st.session_state.progetto_selezionato = None  # Reset dello stato di selezione
 
