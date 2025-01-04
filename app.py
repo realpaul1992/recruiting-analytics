@@ -302,9 +302,6 @@ def carica_recruiters_capacity():
 #######################################
 def calcola_leaderboard_mensile(df, start_date, end_date):
     df_temp = df.copy()
-    df_temp['data_inizio_dt'] = pd.to_datetime(df_temp['data_inizio'], errors='coerce')
-    df_temp['start_date_dt'] = pd.to_datetime(df_temp['start_date'], errors='coerce')
-    df_temp['effective_start_date'] = df_temp['data_inizio_dt'].combine_first(df_temp['start_date_dt'])
     df_temp['recensione_stelle'] = df_temp['recensione_stelle'].fillna(0).astype(int)
 
     # bonus da recensioni
@@ -317,10 +314,12 @@ def calcola_leaderboard_mensile(df, start_date, end_date):
     
     df_temp['bonus'] = df_temp['recensione_stelle'].apply(bonus_stelle)
 
+    # Filtra solo i progetti completati e una tantum
     mask = (
         (df_temp['stato_progetto'] == 'Completato') &
         (df_temp['effective_start_date'] >= pd.Timestamp(start_date)) &
-        (df_temp['effective_start_date'] <= pd.Timestamp(end_date))
+        (df_temp['effective_start_date'] <= pd.Timestamp(end_date)) &
+        (df_temp['start_date_dt'].isna())  # Escludi progetti continuativi
     )
     df_filtro = df_temp[mask].copy()
 
@@ -504,12 +503,15 @@ elif scelta == "Dashboard":
             if df_filtered.empty:
                 st.info("Nessun dato disponibile per l'anno selezionato.")
             else:
-                # Tempo Medio Globale
-                df_comp = df_filtered[df_filtered['stato_progetto'] == 'Completato']
+                # Tempo Medio Globale (Solo Progetti Una Tantum)
+                df_comp = df_filtered[
+                    (df_filtered['stato_progetto'] == 'Completato') &
+                    (df_filtered['start_date_dt'].isna())  # Escludi progetti continuativi
+                ]
                 tempo_medio_globale = df_comp['tempo_totale'].dropna().mean() or 0
                 st.metric("Tempo Medio Globale (giorni)", round(tempo_medio_globale,2))
 
-                # Tempo medio per recruiter
+                # Tempo medio per recruiter (Solo Progetti Una Tantum)
                 rec_media = df_comp.groupby('sales_recruiter')['tempo_totale'].mean().reset_index(name='tempo_medio')
                 rec_media['tempo_medio'] = rec_media['tempo_medio'].fillna(0).round(2)
                 fig_rec = px.bar(
@@ -517,13 +519,13 @@ elif scelta == "Dashboard":
                     x='sales_recruiter',
                     y='tempo_medio',
                     labels={'tempo_medio':'Giorni Medi'},
-                    title='Tempo Medio di Chiusura per Recruiter',
+                    title='Tempo Medio di Chiusura per Recruiter (Progetti Una Tantum)',
                     color='tempo_medio',  # Aggiunta di colore per stile
                     color_continuous_scale='Blues'
                 )
                 st.plotly_chart(fig_rec, use_container_width=True)
 
-                # Tempo medio per settore
+                # Tempo medio per settore (Solo Progetti Una Tantum)
                 sett_media = df_comp.groupby('settore')['tempo_totale'].mean().reset_index(name='tempo_medio')
                 sett_media['tempo_medio'] = sett_media['tempo_medio'].fillna(0).round(2)
                 fig_sett = px.bar(
@@ -531,7 +533,7 @@ elif scelta == "Dashboard":
                     x='settore',
                     y='tempo_medio',
                     labels={'tempo_medio':'Giorni Medi'},
-                    title='Tempo Medio di Chiusura per Settore',
+                    title='Tempo Medio di Chiusura per Settore (Progetti Una Tantum)',
                     color='tempo_medio',
                     color_continuous_scale='Blues'
                 )
@@ -660,7 +662,7 @@ elif scelta == "Dashboard":
             ].copy()
             df_bonus_totale['bonus'] = df_bonus_totale['recensione_stelle'].fillna(0).astype(int).apply(calcola_bonus)
             bonus_rec = df_bonus_totale.groupby('sales_recruiter')['bonus'].sum().reset_index()
-            
+
             # Calcola il bonus totale per ogni recruiter
             df_bonus_totale = df_bonus_totale.groupby('sales_recruiter')['bonus'].sum().reset_index(name='bonus_totale')
 
@@ -836,8 +838,7 @@ elif scelta == "Dashboard":
             st.markdown("**2) Recruiter più veloce (Tempo Medio)**")
             df_comp = df_leader_filtered[
                 (df_leader_filtered['stato_progetto'] == 'Completato') &
-                (df_leader_filtered['effective_start_date'] >= pd.Timestamp(start_date_leader)) &
-                (df_leader_filtered['effective_start_date'] <= pd.Timestamp(end_date_leader))
+                (df_leader_filtered['start_date_dt'].isna())  # Solo progetti una tantum
             ].copy()
             veloce = df_comp.groupby('sales_recruiter')['tempo_totale'].mean().reset_index()
             veloce['tempo_totale'] = veloce['tempo_totale'].fillna(0)
