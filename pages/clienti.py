@@ -7,6 +7,8 @@ from datetime import datetime, date
 import sys
 import os
 import zipfile
+import plotly.express as px
+import matplotlib.pyplot as plt
 
 # Aggiungi il percorso per importare utils.py
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -224,7 +226,7 @@ def inserisci_progetto_continuativo(
         # Controllo che settore_id non sia None
         if settore_id is None:
             raise ValueError("settore_id non può essere None. Verifica che il cliente selezionato abbia un settore assegnato.")
-
+        
         c.execute(query, (
             cliente,
             settore_id,
@@ -364,56 +366,136 @@ def restore_from_zip(zip_file):
         st.success("Ripristino completato con successo da ZIP.")
 
 ####################################
-# FUNZIONI PER GESTIRE LA RETENTION
+# CAPACITA' PER RECRUITER
 #######################################
-
-def carica_candidati_progetti_una_tantum():
-    """
-    Carica i candidati associati ai progetti una tantum.
-    """
+def carica_recruiters_capacity():
     conn = get_connection()
     c = conn.cursor()
-    query = """
-        SELECT 
-            c.id,
-            c.progetto_id,
-            c.recruiter_id,
-            c.candidato_nome,
-            c.data_inserimento,
-            c.data_dimissioni,
-            p.cliente
-        FROM candidati c
-        JOIN progetti p ON c.progetto_id = p.id
-        WHERE p.is_continuative = 0
-    """
+    query = '''
+        SELECT r.nome AS sales_recruiter,
+               IFNULL(rc.capacity_max, 5) AS capacity
+        FROM recruiters r
+        LEFT JOIN recruiter_capacity rc ON r.id = rc.recruiter_id
+        ORDER BY r.nome
+    '''
     c.execute(query)
-    risultati = c.fetchall()
+    rows = c.fetchall()
+    df_capacity = pd.DataFrame(rows, columns=['sales_recruiter', 'capacity'])
     conn.close()
-    return pd.DataFrame(risultati)
+    return df_capacity
 
-def aggiorna_dimissioni_candidato(progetto_id, recruiter_id, data_dimissioni):
-    """
-    Aggiorna la data di dimissione di un candidato specifico.
-    """
-    conn = get_connection()
-    c = conn.cursor()
-    query = """
-        UPDATE candidati
-        SET data_dimissioni = %s
-        WHERE progetto_id = %s AND recruiter_id = %s
-    """
-    c.execute(query, (data_dimissioni, progetto_id, recruiter_id))
-    conn.commit()
-    conn.close()
-    backup_database()
+#######################################
+# FUNZIONE PER CALCOLARE LEADERBOARD MENSILE
+#######################################
+def calcola_leaderboard_mensile(df, start_date, end_date):
+    df_temp = df.copy()
+    df_temp['recensione_stelle'] = df_temp['recensione_stelle'].fillna(0).astype(int)
 
-####################################
+    # bonus da recensioni
+    def bonus_stelle(stelle):
+        if stelle == 4:
+            return 300
+        elif stelle == 5:
+            return 500
+        return 0
+    
+    df_temp['bonus'] = df_temp['recensione_stelle'].apply(bonus_stelle)
+
+    # Filtra solo i progetti completati e una tantum
+    mask = (
+        (df_temp['stato_progetto'] == 'Completato') &
+        (df_temp['effective_start_date'] >= pd.Timestamp(start_date)) &
+        (df_temp['effective_start_date'] <= pd.Timestamp(end_date)) &
+        (df_temp['start_date_dt'].isna())  # Escludi progetti continuativi
+    )
+    df_filtro = df_temp[mask].copy()
+
+    if df_filtro.empty:
+        return pd.DataFrame([], columns=[
+            'sales_recruiter','completati','tempo_medio','bonus_totale','punteggio','badge'
+        ])
+
+    group = df_filtro.groupby('sales_recruiter')
+    completati = group.size().reset_index(name='completati')
+    tempo_medio = group['tempo_totale'].mean().reset_index(name='tempo_medio')
+    bonus_sum = group['bonus'].sum().reset_index(name='bonus_totale')
+
+    leaderboard = (
+        completati
+        .merge(tempo_medio, on='sales_recruiter', how='left')
+        .merge(bonus_sum, on='sales_recruiter', how='left')
+    )
+
+    leaderboard['tempo_medio'] = leaderboard['tempo_medio'].fillna(0)
+    leaderboard['bonus_totale'] = leaderboard['bonus_totale'].fillna(0)
+    leaderboard['punteggio'] = (
+        leaderboard['completati'] * 10
+        + leaderboard['bonus_totale']
+        + leaderboard['tempo_medio'].apply(lambda x: max(0, 30 - x))
+    )
+
+    def assegna_badge(n):
+        if n >= 20:
+            return "Gold"
+        elif n >= 10:
+            return "Silver"
+        elif n >= 5:
+            return "Bronze"
+        return ""
+    
+    leaderboard['badge'] = leaderboard['completati'].apply(assegna_badge)
+    leaderboard = leaderboard.sort_values('punteggio', ascending=False)
+    return leaderboard
+
+#######################################
+# FUNZIONI DI RETENTION
+#######################################
+def calcola_retention(df, start_date, end_date):
+    """
+    Calcola la retention dei clienti nell'intervallo di date specificato.
+    """
+    df_temp = df.copy()
+    
+    # Assicurati che 'effective_start_date' sia datetime
+    df_temp['effective_start_date'] = pd.to_datetime(df_temp['effective_start_date'], errors='coerce')
+    
+    # Filtra i progetti completati
+    df_completati = df_temp[df_temp['stato_progetto'] == 'Completato']
+    
+    # Crea un dataframe con i clienti e la prima data di progetto completato
+    first_projects = df_completati.groupby('cliente')['effective_start_date'].min().reset_index()
+    first_projects.rename(columns={'effective_start_date': 'first_project_date'}, inplace=True)
+    
+    # Unisci con il dataframe originale
+    df_completati = df_completati.merge(first_projects, on='cliente', how='left')
+    
+    # Calcola il numero di clienti che hanno completato almeno un progetto nell'intervallo
+    df_interval = df_completati[
+        (df_completati['first_project_date'] >= pd.Timestamp(start_date)) &
+        (df_completati['first_project_date'] <= pd.Timestamp(end_date))
+    ]
+    
+    total_new_clients = df_interval['cliente'].nunique()
+    
+    # Calcola la retention per ogni mese
+    df_completati['year_month'] = df_completati['effective_start_date'].dt.to_period('M')
+    retention = df_completati.groupby(['year_month', 'cliente']).size().reset_index(name='count')
+    retention['retained'] = 1
+    retention_summary = retention.groupby('year_month')['retained'].sum().reset_index(name='retained_clients')
+    
+    retention_summary['total_new_clients'] = total_new_clients
+    retention_summary['retention_rate'] = (retention_summary['retained_clients'] / retention_summary['total_new_clients']) * 100
+    retention_summary = retention_summary.sort_values('year_month')
+    
+    return retention_summary
+
+#######################################
 # CONFIG E LAYOUT
 #######################################
-
 # Lista degli stati progetto con "In corso" correttamente capitalizzato
 STATI_PROGETTO = ["Completato", "In corso", "Bloccato"]
 
+# Carichiamo i riferimenti
 settori_db = carica_settori_db()
 project_managers_db = carica_project_managers_db()
 recruiters_db = carica_recruiters_db()
@@ -847,3 +929,73 @@ with tab2:
                 file_name="progetti_continuativi.csv",
                 mime="text/csv"
             )
+
+####################################
+# TAB 3: Retention
+####################################
+with tab3:
+    st.header("Analisi della Retention dei Clienti")
+
+    st.subheader("Filtro per Intervallo di Date")
+    with st.form("form_retention_filter"):
+        start_date = st.date_input("Data Inizio", value=datetime.today().date().replace(year=datetime.today().year -1))
+        end_date = st.date_input("Data Fine", value=datetime.today().date())
+        submit_retention = st.form_submit_button("Calcola Retention")
+
+    if submit_retention:
+        if start_date > end_date:
+            st.error("La Data Inizio non può essere successiva alla Data Fine.")
+        else:
+            df_completo = carica_dati_completo(include_continuativi=False)
+            if df_completo.empty:
+                st.info("Nessun progetto presente nel DB.")
+            else:
+                retention_df = calcola_retention(df_completo, start_date, end_date)
+                if retention_df.empty:
+                    st.info("Nessun dato disponibile per l'intervallo di date selezionato.")
+                else:
+                    st.write(f"**Intervallo di Date:** {start_date.strftime('%d/%m/%Y')} - {end_date.strftime('%d/%m/%Y')}")
+                    st.write(f"**Numero Totale di Nuovi Clienti:** {retention_df['total_new_clients'].iloc[0]}")
+
+                    st.write("**Tassi di Retention Mensili:**")
+                    st.dataframe(retention_df[['year_month', 'retained_clients', 'total_new_clients', 'retention_rate']])
+
+                    # Grafico della Retention
+                    fig_retention = px.line(
+                        retention_df,
+                        x='year_month',
+                        y='retention_rate',
+                        markers=True,
+                        labels={'year_month': 'Mese', 'retention_rate': 'Tasso di Retention (%)'},
+                        title='Tassi di Retention Mensili'
+                    )
+                    st.plotly_chart(fig_retention, use_container_width=True)
+
+    st.markdown("---")
+    st.subheader("Grafico della Retention Complessiva")
+
+    if st.button("Mostra Grafico Retention"):
+        df_completo = carica_dati_completo(include_continuativi=False)
+        if df_completo.empty:
+            st.info("Nessun progetto presente nel DB.")
+        else:
+            retention_summary = calcola_retention(df_completo, date(2000,1,1), date.today())
+            if retention_summary.empty:
+                st.info("Nessun dato disponibile per la retention.")
+            else:
+                fig_overall = px.bar(
+                    retention_summary,
+                    x='year_month',
+                    y='retention_rate',
+                    labels={'year_month': 'Mese', 'retention_rate': 'Tasso di Retention (%)'},
+                    title='Tasso di Retention Complessivo per Mese'
+                )
+                st.plotly_chart(fig_overall, use_container_width=True)
+
+####################################
+# CODICE PER GESTIONE CLIENTI E PROGETTI CONTINUATIVI
+####################################
+
+# Il resto del codice rimane invariato...
+
+# Se desideri aggiungere ulteriori funzionalità alla scheda Retention, puoi estendere le funzioni sopra o aggiungere nuovi componenti all'interno della scheda.
