@@ -104,7 +104,8 @@ def inserisci_dati(cliente, settore_id, pm_id, rec_id, data_inizio):
 def carica_dati_completo():
     """
     Carica i progetti uniti a settori, pm, recruiters, includendo 'tempo_previsto'.
-    Aggiunge una colonna 'effective_start_date' che unisce 'data_inizio' e 'start_date'.
+    Aggiunge colonne datetime come 'data_inizio_dt', 'start_date_dt', 'recensione_data_dt', e 'data_fine_dt'.
+    Crea una colonna 'effective_start_date' che unisce 'data_inizio_dt' e 'start_date_dt'.
     """
     conn = get_connection()
     c = conn.cursor()
@@ -146,10 +147,11 @@ def carica_dati_completo():
         df["tempo_previsto"] = pd.to_numeric(df["tempo_previsto"], errors="coerce")
         df["tempo_previsto"] = df["tempo_previsto"].fillna(0).astype(int)
     
-    # Aggiungi 'data_inizio_dt' e 'start_date_dt'
+    # Aggiungi colonne datetime
     df['data_inizio_dt'] = pd.to_datetime(df['data_inizio'], errors='coerce')
     df['start_date_dt'] = pd.to_datetime(df['start_date'], errors='coerce')
     df['recensione_data_dt'] = pd.to_datetime(df['recensione_data'], errors='coerce')
+    df['data_fine_dt'] = pd.to_datetime(df['data_fine'], errors='coerce')  # **Aggiunta Necessaria**
     
     # Crea 'effective_start_date' che utilizza 'data_inizio_dt' se presente, altrimenti 'start_date_dt'
     df['effective_start_date'] = df['data_inizio_dt'].combine_first(df['start_date_dt'])
@@ -459,7 +461,7 @@ rec_db = carica_recruiters()
 
 st.title("Gestione Progetti di Recruiting")
 st.sidebar.title("Navigazione")
-# Aggiorna la lista delle tab includendo "Retention"
+# Aggiorna la lista delle tab includendo "Recruiters"
 scelta = st.sidebar.radio("Vai a", ["Inserisci Dati", "Dashboard", "Gestisci Opzioni"])
 
 #######################################
@@ -534,14 +536,15 @@ elif scelta == "Dashboard":
     if df.empty:
         st.info("Nessun progetto disponibile nel DB.")
     else:
-        # Creiamo le Tab, includendo "Retention"
-        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        # Creiamo le Tab, includendo "Recruiters"
+        tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
             "Panoramica",
             "Carico Proiettato / Previsione",
             "Bonus e Premi",
             "Backup",
-            "Retention",  # Nuova scheda Retention
-            "Classifica"
+            "Retention",  # Scheda Retention
+            "Classifica",
+            "Recruiters"  # Nuova scheda Recruiters
         ])
 
         ################################
@@ -571,6 +574,7 @@ elif scelta == "Dashboard":
                     st.error(f"Errore nella selezione di Anno: {e}")
                     st.stop()
 
+                # Filtraggio per progetti attivi durante l'anno selezionato
                 df_filtered = df[
                     (df['effective_start_date'] >= pd.Timestamp(start_date)) &
                     (df['effective_start_date'] <= pd.Timestamp(end_date))
@@ -1109,13 +1113,118 @@ elif scelta == "Dashboard":
             else:
                 st.warning("'recensione_stelle' non è presente nei dati filtrati.")
 
-#######################################
-# 3. GESTISCI OPZIONI
-#######################################
-elif scelta == "Gestisci Opzioni":
-    st.write("Gestione settori, PM, recruiters e capacity in manage_options.py")
-    st.markdown("### Nota")
-    st.markdown("""
-    La gestione delle opzioni (settori, Project Managers, Recruiters e Capacità) è gestita nel file `manage_options.py`.
-    Assicurati di navigare a quella pagina per gestire le tue opzioni.
-    """)
+        ################################
+        # TAB 7: Recruiters
+        ################################
+        with tab7:
+            st.subheader("Recruiters")
+
+            # Filtro per Anno
+            st.markdown("### Filtro per Anno")
+            anni_disponibili_recr = sorted(df['effective_start_date'].dt.year.dropna().unique())
+            anni_disponibili_recr = [int(y) for y in anni_disponibili_recr]
+            anni_opzioni_recr = ["Tutti"] + anni_disponibili_recr
+            anno_recr = st.selectbox(
+                "Seleziona Anno",
+                options=anni_opzioni_recr,
+                index=0,  # Imposta di default su "Tutti"
+                key='recruiters_anno'
+            )
+
+            # Menu a tendina per Recruiters Attualmente Attivi
+            st.markdown("### Seleziona Recruiter")
+            # Definizione dei recruiter attivi come quelli con almeno un progetto attivo
+            df_active_recr = df[df['stato_progetto'].isin(['In corso', 'Bloccato'])]
+            active_recruiters = df_active_recr['sales_recruiter'].unique()
+            active_recruiters = sorted(active_recruiters)
+            rec_sel_recr = st.selectbox(
+                "Seleziona Recruiter",
+                options=active_recruiters,
+                index=0,
+                key='recruiters_selezionato'
+            )
+
+            # Filtra i dati in base alla selezione
+            if anno_recr != "Tutti":
+                try:
+                    start_date_recr = datetime(anno_recr, 1, 1)
+                    end_date_recr = datetime(anno_recr, 12, 31)
+                    df_filtered_recr = df[
+                        (df['effective_start_date'] >= pd.Timestamp(start_date_recr)) &
+                        (df['effective_start_date'] <= pd.Timestamp(end_date_recr)) &
+                        (df['sales_recruiter'] == rec_sel_recr)
+                    ]
+                except TypeError as e:
+                    st.error(f"Errore nella selezione di Anno: {e}")
+                    st.stop()
+            else:
+                # Usa tutti i dati per il recruiter selezionato
+                df_filtered_recr = df[df['sales_recruiter'] == rec_sel_recr].copy()
+
+            if df_filtered_recr.empty:
+                st.info("Nessun dato disponibile per la selezione.")
+            else:
+                # Tempo Medio di Chiusura
+                df_closed_recr = df_filtered_recr[df_filtered_recr['stato_progetto'] == 'Completato']
+                if df_closed_recr.empty:
+                    st.info("Nessun progetto completato per questo recruiter e anno.")
+                else:
+                    tempo_medio = df_closed_recr['tempo_totale'].dropna().mean() or 0
+                    st.metric("Tempo Medio di Chiusura (giorni)", round(tempo_medio,2))
+
+                    # Tempo Medio di Chiusura per Settore del Recruiter
+                    tempo_medio_sett_recr = df_closed_recr.groupby('settore')['tempo_totale'].mean().reset_index(name='tempo_medio')
+                    tempo_medio_sett_recr['tempo_medio'] = tempo_medio_sett_recr['tempo_medio'].fillna(0).round(2)
+                    fig_sett_recr = px.bar(
+                        tempo_medio_sett_recr,
+                        x='settore',
+                        y='tempo_medio',
+                        labels={'tempo_medio':'Giorni Medi'},
+                        title=f'Tempo Medio di Chiusura per Settore - {rec_sel_recr}',
+                        color='tempo_medio',
+                        color_continuous_scale='Blues'
+                    )
+                    st.plotly_chart(fig_sett_recr, use_container_width=True)
+
+                # Progetti Attivi
+                df_attivi_recr = df_filtered_recr[df_filtered_recr['stato_progetto'].isin(["In corso", "Bloccato"])]
+                progetti_attivi_recr = len(df_attivi_recr)
+                st.metric("Progetti Attivi", progetti_attivi_recr)
+
+                # Capacità di Carico
+                df_capacity = carica_recruiters_capacity()
+                recruiter_capacity = df_capacity[df_capacity['sales_recruiter'] == rec_sel_recr]
+                if not recruiter_capacity.empty:
+                    capacity_max_recr = int(recruiter_capacity['capacity'].iloc[0])
+                else:
+                    capacity_max_recr = 5  # default as per existing code
+                capacità_disponibile_recr = capacity_max_recr - progetti_attivi_recr
+                capacità_disponibile_recr = max(capacità_disponibile_recr, 0)
+                st.metric("Capacità Disponibile", capacità_disponibile_recr)
+
+                # Grafico Capacità di Carico
+                fig_capacity_recr = px.bar(
+                    x=['Progetti Attivi', 'Capacità Disponibile'],
+                    y=[progetti_attivi_recr, capacità_disponibile_recr],
+                    labels={'x': 'Categoria', 'y': 'Numero'},
+                    title=f'Capacità di Carico - {rec_sel_recr}',
+                    color=['Progetti Attivi', 'Capacità Disponibile'],
+                    color_discrete_sequence=['#636EFA', '#EF553B']
+                )
+                st.plotly_chart(fig_capacity_recr, use_container_width=True)
+
+        ################################
+        # TAB 7: Recruiters
+        ################################
+        # La scheda "Recruiters" è già stata implementata sopra come tab7
+
+    #######################################
+    # 3. GESTISCI OPZIONI
+    #######################################
+    elif scelta == "Gestisci Opzioni":
+        st.write("Gestione settori, PM, recruiters e capacity in manage_options.py")
+        st.markdown("### Nota")
+        st.markdown("""
+        La gestione delle opzioni (settori, Project Managers, Recruiters e Capacità) è gestita nel file `manage_options.py`.
+        Assicurati di navigare a quella pagina per gestire le tue opzioni.
+        """)
