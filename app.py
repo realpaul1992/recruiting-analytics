@@ -557,22 +557,25 @@ elif scelta == "Dashboard":
             if len(anni_disponibili) == 0:
                 st.warning("Nessun dato disponibile per i filtri.")
                 st.stop()
-            # Converti gli anni in interi
-            anni_disponibili = [int(y) for y in anni_disponibili]
-            anno_selezionato = st.selectbox("Seleziona Anno", options=anni_disponibili, index=len(anni_disponibili)-1, key='panoramica_anno')
+            # Converti gli anni in interi e aggiungi "Tutto" all'inizio
+            anni_opzioni = ["Tutto"] + [int(y) for y in anni_disponibili]
+            anno_selezionato = st.selectbox("Seleziona Anno", options=anni_opzioni, index=0, key='panoramica_anno')
             
             # Filtra i dati in base all'anno selezionato
-            try:
-                start_date = datetime(anno_selezionato, 1, 1)
-                end_date = datetime(anno_selezionato, 12, 31)
-            except TypeError as e:
-                st.error(f"Errore nella selezione di Anno: {e}")
-                st.stop()
-
-            df_filtered = df[
-                (df['effective_start_date'] >= pd.Timestamp(start_date)) &
-                (df['effective_start_date'] <= pd.Timestamp(end_date))
-            ]
+            if anno_selezionato != "Tutto":
+                try:
+                    start_date = datetime(anno_selezionato, 1, 1)
+                    end_date = datetime(anno_selezionato, 12, 31)
+                    df_filtered = df[
+                        (df['effective_start_date'] >= pd.Timestamp(start_date)) &
+                        (df['effective_start_date'] <= pd.Timestamp(end_date))
+                    ]
+                except TypeError as e:
+                    st.error(f"Errore nella selezione di Anno: {e}")
+                    st.stop()
+            else:
+                # Se "Tutto" è selezionato, non applicare alcun filtro per l'anno
+                df_filtered = df.copy()
 
             if df_filtered.empty:
                 st.info("Nessun dato disponibile per l'anno selezionato.")
@@ -730,95 +733,107 @@ elif scelta == "Dashboard":
             if len(anni_disponibili_bonus) == 0:
                 st.warning("Nessun dato disponibile per il filtro dei bonus.")
                 st.stop()
-            # Converti gli anni in interi
-            anni_disponibili_bonus = [int(y) for y in anni_disponibili_bonus]
-            anno_bonus = st.selectbox("Seleziona Anno", options=anni_disponibili_bonus, index=len(anni_disponibili_bonus)-1, key='bonus_anno')
+            # Converti gli anni in interi e aggiungi "Tutto" all'inizio
+            anni_opzioni_bonus = ["Tutto"] + [int(y) for y in anni_disponibili_bonus]
+            anno_bonus = st.selectbox("Seleziona Anno", options=anni_opzioni_bonus, index=0, key='bonus_anno')
             
             # Filtra i dati in base all'anno selezionato
-            try:
-                start_date_bonus = datetime(anno_bonus, 1, 1)
-                end_date_bonus = datetime(anno_bonus, 12, 31)
-            except TypeError as e:
-                st.error(f"Errore nella selezione di Anno per i bonus: {e}")
-                st.stop()
-
-            # Calcola il bonus totale per ogni recruiter
-            df_bonus_totale = df[
-                (df['recensione_data_dt'] >= pd.Timestamp(start_date_bonus)) & 
-                (df['recensione_data_dt'] <= pd.Timestamp(end_date_bonus))
-            ].copy()
-            df_bonus_totale['bonus'] = df_bonus_totale['recensione_stelle'].fillna(0).astype(int).apply(calcola_bonus)
-            bonus_rec = df_bonus_totale.groupby('sales_recruiter')['bonus'].sum().reset_index()
-
-            # Calcola il bonus totale per ogni recruiter
-            df_bonus_totale = df_bonus_totale.groupby('sales_recruiter')['bonus'].sum().reset_index(name='bonus_totale')
-
-            # Calcola la percentuale verso il 1000€
-            df_bonus_totale['percentuale'] = (df_bonus_totale['bonus_totale'] / 1000) * 100
-            df_bonus_totale['percentuale'] = df_bonus_totale['percentuale'].apply(lambda x: min(x, 100))  # Limita al 100%
-
-            # Ordina per percentuale
-            df_bonus_totale = df_bonus_totale.sort_values(by='percentuale', ascending=False)
-
-            st.write(f"Progetti con recensione in questo anno: {len(df_bonus_totale)}")
-
-            # **Nuovo Grafico: Avvicinamento al Premio Annuale di 1000€**
-            st.markdown("### Avvicinamento al Premio Annuale di 1000€")
-            fig_premio = px.bar(
-                df_bonus_totale,
-                y='sales_recruiter',
-                x='percentuale',
-                orientation='h',
-                labels={'percentuale': 'Percentuale verso 1000€', 'sales_recruiter': 'Recruiter'},
-                title='Avvicinamento al Premio Annuale di 1000€',
-                text=df_bonus_totale['percentuale'].apply(lambda x: f"{x:.1f}%")
-            )
-
-            # Aggiungi una linea verticale al 100%
-            fig_premio.add_shape(
-                type="line",
-                x0=100,
-                y0=-0.5,
-                x1=100,
-                y1=len(df_bonus_totale),
-                line=dict(color="Red", dash="dash"),
-            )
-
-            # Aggiorna layout per migliorare la leggibilità
-            fig_premio.update_layout(
-                yaxis=dict(categoryorder='total ascending'),
-                xaxis=dict(range=[0, 110]),
-                showlegend=False,
-                margin=dict(l=100, r=50, t=50, b=50)
-            )
-
-            fig_premio.update_traces(marker_color='skyblue')
-
-            st.plotly_chart(fig_premio, use_container_width=True, key='premio_annual_chart')  # Chiave unica
-
-            # **Aggiornamento del Testo per "Premio Annuale (Recensioni a 5 stelle)"**
-            st.subheader("Premio Annuale (Recensioni a 5 stelle)")
-            # Rimosso il testo statico con il placeholder
-
-            # **Nuova Implementazione: Premiazione Basata sulle Recensioni a 5 Stelle**
-            # Contare il numero di recensioni a 5 stelle per ogni recruiter
-            df_reviews_5 = df[
-                (df['recensione_stelle'] == 5) &
-                (df['recensione_data_dt'] >= pd.Timestamp(start_date_bonus)) &
-                (df['recensione_data_dt'] <= pd.Timestamp(end_date_bonus))
-            ]
-
-            if not df_reviews_5.empty:
-                count_reviews = df_reviews_5.groupby('sales_recruiter').size().reset_index(name='recensioni_5_stelle')
-                max_reviews = count_reviews['recensioni_5_stelle'].max()
-                top_recruiters = count_reviews[count_reviews['recensioni_5_stelle'] == max_reviews]
-
-                if len(top_recruiters) == 1:
-                    st.success(f"Il premio annuale va a {top_recruiters.iloc[0]['sales_recruiter']} con {top_recruiters.iloc[0]['recensioni_5_stelle']} recensioni a 5 stelle!")
-                else:
-                    st.success(f"Premio annuale condiviso tra: {', '.join(top_recruiters['sales_recruiter'])}, ciascuno con {max_reviews} recensioni a 5 stelle!")
+            if anno_bonus != "Tutto":
+                try:
+                    start_date_bonus = datetime(anno_bonus, 1, 1)
+                    end_date_bonus = datetime(anno_bonus, 12, 31)
+                    df_bonus_totale = df[
+                        (df['recensione_data_dt'] >= pd.Timestamp(start_date_bonus)) & 
+                        (df['recensione_data_dt'] <= pd.Timestamp(end_date_bonus))
+                    ].copy()
+                except TypeError as e:
+                    st.error(f"Errore nella selezione di Anno per i bonus: {e}")
+                    st.stop()
             else:
-                st.info("Nessun recruiter ha ricevuto recensioni a 5 stelle quest'anno.")
+                # Se "Tutto" è selezionato, considera tutti gli anni
+                df_bonus_totale = df.copy()
+
+            # Filtra solo i progetti completati e una tantum
+            df_bonus_totale = df_bonus_totale[
+                (df_bonus_totale['stato_progetto'] == 'Completato') &
+                (df_bonus_totale['start_date_dt'].isna())  # Escludi progetti continuativi
+            ].copy()
+
+            if not df_bonus_totale.empty:
+                df_bonus_totale['bonus'] = df_bonus_totale['recensione_stelle'].fillna(0).astype(int).apply(calcola_bonus)
+                bonus_rec = df_bonus_totale.groupby('sales_recruiter')['bonus'].sum().reset_index()
+    
+                # Calcola il bonus totale per ogni recruiter
+                df_bonus_totale = df_bonus_totale.groupby('sales_recruiter')['bonus'].sum().reset_index(name='bonus_totale')
+    
+                # Calcola la percentuale verso il 1000€
+                df_bonus_totale['percentuale'] = (df_bonus_totale['bonus_totale'] / 1000) * 100
+                df_bonus_totale['percentuale'] = df_bonus_totale['percentuale'].apply(lambda x: min(x, 100))  # Limita al 100%
+    
+                # Ordina per percentuale
+                df_bonus_totale = df_bonus_totale.sort_values(by='percentuale', ascending=False)
+    
+                st.write(f"Progetti con recensione in questo anno: {len(df_bonus_totale)}")
+    
+                # **Nuovo Grafico: Avvicinamento al Premio Annuale di 1000€**
+                st.markdown("### Avvicinamento al Premio Annuale di 1000€")
+                fig_premio = px.bar(
+                    df_bonus_totale,
+                    y='sales_recruiter',
+                    x='percentuale',
+                    orientation='h',
+                    labels={'percentuale': 'Percentuale verso 1000€', 'sales_recruiter': 'Recruiter'},
+                    title='Avvicinamento al Premio Annuale di 1000€',
+                    text=df_bonus_totale['percentuale'].apply(lambda x: f"{x:.1f}%")
+                )
+    
+                # Aggiungi una linea verticale al 100%
+                fig_premio.add_shape(
+                    type="line",
+                    x0=100,
+                    y0=-0.5,
+                    x1=100,
+                    y1=len(df_bonus_totale),
+                    line=dict(color="Red", dash="dash"),
+                )
+    
+                # Aggiorna layout per migliorare la leggibilità
+                fig_premio.update_layout(
+                    yaxis=dict(categoryorder='total ascending'),
+                    xaxis=dict(range=[0, 110]),
+                    showlegend=False,
+                    margin=dict(l=100, r=50, t=50, b=50)
+                )
+    
+                fig_premio.update_traces(marker_color='skyblue')
+    
+                st.plotly_chart(fig_premio, use_container_width=True, key='premio_annual_chart')  # Chiave unica
+    
+                # **Aggiornamento del Testo per "Premio Annuale (Recensioni a 5 stelle)"**
+                st.subheader("Premio Annuale (Recensioni a 5 stelle)")
+                # Rimosso il testo statico con il placeholder
+    
+                # **Nuova Implementazione: Premiazione Basata sulle Recensioni a 5 Stelle**
+                # Contare il numero di recensioni a 5 stelle per ogni recruiter
+                df_reviews_5 = df_bonus_totale[
+                    (df_bonus_totale['recensione_stelle'] == 5) &
+                    (df_bonus_totale['recensione_data_dt'] >= pd.Timestamp(start_date_bonus)) &
+                    (df_bonus_totale['recensione_data_dt'] <= pd.Timestamp(end_date_bonus))
+                ]
+    
+                if not df_reviews_5.empty:
+                    count_reviews = df_reviews_5.groupby('sales_recruiter').size().reset_index(name='recensioni_5_stelle')
+                    max_reviews = count_reviews['recensioni_5_stelle'].max()
+                    top_recruiters = count_reviews[count_reviews['recensioni_5_stelle'] == max_reviews]
+    
+                    if len(top_recruiters) == 1:
+                        st.success(f"Il premio annuale va a {top_recruiters.iloc[0]['sales_recruiter']} con {top_recruiters.iloc[0]['recensioni_5_stelle']} recensioni a 5 stelle!")
+                    else:
+                        st.success(f"Premio annuale condiviso tra: {', '.join(top_recruiters['sales_recruiter'])}, ciascuno con {max_reviews} recensioni a 5 stelle!")
+                else:
+                    st.info("Nessun recruiter ha ricevuto recensioni a 5 stelle quest'anno.")
+            else:
+                st.info("Nessun progetto completato una tantum per il bonus.")
 
         ################################
         # TAB 4: Backup
@@ -987,22 +1002,25 @@ elif scelta == "Dashboard":
             if len(anni_leader) == 0:
                 st.warning("Nessun dato disponibile per il leaderboard.")
                 st.stop()
-            # Converti gli anni in interi
-            anni_leader = [int(y) for y in anni_leader]
-            anno_leader = st.selectbox("Seleziona Anno", options=anni_leader, index=len(anni_leader)-1, key='leaderboard_anno')
+            # Converti gli anni in interi e aggiungi "Tutto" all'inizio
+            anni_opzioni_leader = ["Tutto"] + [int(y) for y in anni_leader]
+            anno_leader = st.selectbox("Seleziona Anno", options=anni_opzioni_leader, index=0, key='leaderboard_anno')
 
             # Filtra i dati per il leaderboard basato sull'anno selezionato
-            try:
-                start_date_leader = datetime(anno_leader, 1, 1)
-                end_date_leader = datetime(anno_leader, 12, 31)
-            except TypeError as e:
-                st.error(f"Errore nella selezione di Anno per il leaderboard: {e}")
-                st.stop()
-
-            df_leader_filtered = df[
-                (df['effective_start_date'] >= pd.Timestamp(start_date_leader)) &
-                (df['effective_start_date'] <= pd.Timestamp(end_date_leader))
-            ]
+            if anno_leader != "Tutto":
+                try:
+                    start_date_leader = datetime(anno_leader, 1, 1)
+                    end_date_leader = datetime(anno_leader, 12, 31)
+                    df_leader_filtered = df[
+                        (df['effective_start_date'] >= pd.Timestamp(start_date_leader)) &
+                        (df['effective_start_date'] <= pd.Timestamp(end_date_leader))
+                    ]
+                except TypeError as e:
+                    st.error(f"Errore nella selezione di Anno per il leaderboard: {e}")
+                    st.stop()
+            else:
+                # Se "Tutto" è selezionato, considera tutti gli anni
+                df_leader_filtered = df.copy()
 
             # Filtra solo i progetti completati e una tantum
             df_leader_comp = df_leader_filtered[
@@ -1012,7 +1030,7 @@ elif scelta == "Dashboard":
 
             st.write(f"Anno in analisi: {anno_leader}")
 
-            leaderboard_df = calcola_leaderboard_mensile(df_leader_comp, start_date_leader, end_date_leader)
+            leaderboard_df = calcola_leaderboard_mensile(df_leader_comp, start_date_leader if anno_leader != "Tutto" else df_leader_filtered['effective_start_date'].min(), end_date_leader if anno_leader != "Tutto" else df_leader_filtered['effective_start_date'].max())
             if leaderboard_df.empty:
                 st.info("Nessun progetto completato una tantum in questo periodo.")
             else:
