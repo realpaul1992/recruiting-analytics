@@ -1131,18 +1131,33 @@ elif scelta == "Dashboard":
                 key='recruiters_anno'
             )
 
-            # Menu a tendina per Recruiters Attualmente Attivi
+            # Menu a tendina per tutti i Recruiters con indicatore di stato
             st.markdown("### Seleziona Recruiter")
-            # Definizione dei recruiter attivi come quelli con almeno un progetto attivo
+            # Carica tutti i recruiters
+            all_recruiters = [r['nome'] for r in rec_db]
+            all_recruiters = sorted(all_recruiters)
+            
+            # Ottieni l'elenco dei recruiters con progetti attivi
             df_active_recr = df[df['stato_progetto'].isin(['In corso', 'Bloccato'])]
-            active_recruiters = df_active_recr['sales_recruiter'].unique()
-            active_recruiters = sorted(active_recruiters)
+            active_recruiters_set = set(df_active_recr['sales_recruiter'].unique())
+            
+            # Crea una lista di tuples con nome e stato attivo
+            recruiters_with_status = [
+                (recruiter, "Attivo" if recruiter in active_recruiters_set else "Inattivo") 
+                for recruiter in all_recruiters
+            ]
+            
+            # Visualizza il menu a tendina con status
             rec_sel_recr = st.selectbox(
                 "Seleziona Recruiter",
-                options=active_recruiters,
+                options=recruiters_with_status,
+                format_func=lambda x: f"{x[0]} ({x[1]})",
                 index=0,
                 key='recruiters_selezionato'
             )
+            
+            # Estrai solo il nome del recruiter selezionato
+            selected_recruiter_name = rec_sel_recr[0]
 
             # Filtra i dati in base alla selezione
             if anno_recr != "Tutti":
@@ -1152,14 +1167,14 @@ elif scelta == "Dashboard":
                     df_filtered_recr = df[
                         (df['effective_start_date'] >= pd.Timestamp(start_date_recr)) &
                         (df['effective_start_date'] <= pd.Timestamp(end_date_recr)) &
-                        (df['sales_recruiter'] == rec_sel_recr)
+                        (df['sales_recruiter'] == selected_recruiter_name)
                     ]
                 except TypeError as e:
                     st.error(f"Errore nella selezione di Anno: {e}")
                     st.stop()
             else:
                 # Usa tutti i dati per il recruiter selezionato
-                df_filtered_recr = df[df['sales_recruiter'] == rec_sel_recr].copy()
+                df_filtered_recr = df[df['sales_recruiter'] == selected_recruiter_name].copy()
 
             if df_filtered_recr.empty:
                 st.info("Nessun dato disponibile per la selezione.")
@@ -1180,7 +1195,7 @@ elif scelta == "Dashboard":
                         x='settore',
                         y='tempo_medio',
                         labels={'tempo_medio':'Giorni Medi'},
-                        title=f'Tempo Medio di Chiusura per Settore - {rec_sel_recr}',
+                        title=f'Tempo Medio di Chiusura per Settore - {selected_recruiter_name}',
                         color='tempo_medio',
                         color_continuous_scale='Blues'
                     )
@@ -1193,7 +1208,7 @@ elif scelta == "Dashboard":
 
                 # Capacità di Carico
                 df_capacity = carica_recruiters_capacity()
-                recruiter_capacity = df_capacity[df_capacity['sales_recruiter'] == rec_sel_recr]
+                recruiter_capacity = df_capacity[df_capacity['sales_recruiter'] == selected_recruiter_name]
                 if not recruiter_capacity.empty:
                     capacity_max_recr = int(recruiter_capacity['capacity'].iloc[0])
                 else:
@@ -1207,7 +1222,7 @@ elif scelta == "Dashboard":
                     x=['Progetti Attivi', 'Capacità Disponibile'],
                     y=[progetti_attivi_recr, capacità_disponibile_recr],
                     labels={'x': 'Categoria', 'y': 'Numero'},
-                    title=f'Capacità di Carico - {rec_sel_recr}',
+                    title=f'Capacità di Carico - {selected_recruiter_name}',
                     color=['Progetti Attivi', 'Capacità Disponibile'],
                     color_discrete_sequence=['#636EFA', '#EF553B']
                 )
