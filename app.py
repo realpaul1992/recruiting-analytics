@@ -764,7 +764,10 @@ elif scelta == "Dashboard":
                 st.error("'recensione_stelle' non è presente nei dati filtrati.")
                 st.stop()
             
-            # Calcola il bonus totale per ogni recruiter
+            # Calcola il premio annuale basato su recensioni a 5 stelle **prima** di aggregare
+            df_reviews_5 = df_bonus_totale[df_bonus_totale['recensione_stelle'] == 5]
+            
+            # Calcola il bonus totale per ogni recruiter **dopo** aver filtrato 'df_reviews_5'
             df_bonus_totale['bonus'] = df_bonus_totale['recensione_stelle'].fillna(0).astype(int).apply(calcola_bonus)
             df_bonus_totale = df_bonus_totale.groupby('sales_recruiter')['bonus'].sum().reset_index(name='bonus_totale')
 
@@ -813,9 +816,7 @@ elif scelta == "Dashboard":
 
             # **Premiazione Basata sulle Recensioni a 5 Stelle**
             st.subheader("Premio Annuale (Recensioni a 5 stelle)")
-            # Correzione: Utilizzare 'df_leader_comp' invece di 'df_bonus_totale'
-            df_reviews_5 = df_leader_comp[df_leader_comp['recensione_stelle'] == 5]
-
+            
             if not df_reviews_5.empty:
                 count_reviews = df_reviews_5.groupby('sales_recruiter').size().reset_index(name='recensioni_5_stelle')
                 max_reviews = count_reviews['recensioni_5_stelle'].max()
