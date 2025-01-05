@@ -158,75 +158,6 @@ def carica_dati_completo():
     return df
 
 #######################################
-# FUNZIONI PER GESTIONE CANDIDATI  # NUOVO
-#######################################
-
-def carica_candidati_completo():
-    """
-    Carica tutti i candidati dal database.
-    """
-    conn = get_connection()
-    c = conn.cursor()
-    query = """
-        SELECT
-            c.id,
-            c.progetto_id,
-            c.recruiter_id,
-            c.candidato_nome,
-            c.data_inserimento,
-            c.data_dimissioni,
-            c.data_placement
-        FROM candidati c
-    """
-    c.execute(query)
-    rows = c.fetchall()
-    columns = ['id','progetto_id','recruiter_id','candidato_nome','data_inserimento','data_dimissioni','data_placement']
-    conn.close()
-    df = pd.DataFrame(rows, columns=columns)
-    
-    # Convertiamo le date
-    df['data_inserimento_dt'] = pd.to_datetime(df['data_inserimento'], errors='coerce')
-    df['data_dimissioni_dt'] = pd.to_datetime(df['data_dimissioni'], errors='coerce')
-    df['data_placement_dt'] = pd.to_datetime(df['data_placement'], errors='coerce')
-    
-    # Calcoliamo la durata in giorni se 'data_dimissioni' è presente
-    df['durata_giorni'] = (df['data_dimissioni_dt'] - df['data_inserimento_dt']).dt.days
-    
-    return df
-
-def calcola_durata_media(df_candidati):
-    """
-    Calcola la durata media dei venditori per progetto.
-    """
-    df_valid = df_candidati.dropna(subset=['durata_giorni'])
-    if df_valid.empty:
-        return pd.DataFrame()
-    durata_media = df_valid.groupby(['recruiter_id', 'progetto_id'])['durata_giorni'].mean().reset_index()
-    return durata_media
-
-def conta_dimissioni_per_recruiter(df_candidati):
-    """
-    Conta quante volte un venditore è stato inserito e ha lasciato un progetto per recruiter.
-    """
-    inserimenti = df_candidati.groupby('recruiter_id').size().reset_index(name='inserimenti')
-    dimissioni = df_candidati.dropna(subset=['data_dimissioni']).groupby('recruiter_id').size().reset_index(name='dimissioni')
-    conta = inserimenti.merge(dimissioni, on='recruiter_id', how='left').fillna(0)
-    conta['dimissioni'] = conta['dimissioni'].astype(int)
-    return conta
-
-def recruiter_piu_dimissioni(df_candidati):
-    """
-    Trova il recruiter con il maggior numero di venditori che hanno lasciato i progetti.
-    """
-    dimissioni = df_candidati.dropna(subset=['data_dimissioni'])
-    if dimissioni.empty:
-        return None
-    recruiter_count = dimissioni.groupby('recruiter_id').size().reset_index(name='dimissioni')
-    max_dimissioni = recruiter_count['dimissioni'].max()
-    top_recruiters = recruiter_count[recruiter_count['dimissioni'] == max_dimissioni]
-    return top_recruiters
-
-#######################################
 # DEFINIZIONE DELLA FUNZIONE calcola_bonus
 #######################################
 def calcola_bonus(stelle):
@@ -388,7 +319,7 @@ def calcola_leaderboard_mensile(df, start_date, end_date):
         (df_temp['stato_progetto'] == 'Completato') &
         (df_temp['effective_start_date'] >= pd.Timestamp(start_date)) &
         (df_temp['effective_start_date'] <= pd.Timestamp(end_date)) &
-        (df_temp['tempo_previsto'] > 0)  # Assicurati che 'tempo_previsto' sia positivo
+        (df_temp['start_date_dt'].isna())  # Escludi progetti continuativi
     )
     df_filtro = df_temp[mask].copy()
 
@@ -526,19 +457,17 @@ if scelta == "Inserisci Dati":
 #######################################
 elif scelta == "Dashboard":
     st.header("Dashboard di Controllo")
-    df_progetti = carica_dati_completo()
-    df_candidati = carica_candidati_completo()  # NUOVO
+    df = carica_dati_completo()
     
-    if df_progetti.empty:
+    if df.empty:
         st.info("Nessun progetto disponibile nel DB.")
     else:
         # Creiamo le Tab
-        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        tab1, tab2, tab3, tab4, tab6 = st.tabs([
             "Panoramica",
             "Carico Proiettato / Previsione",
             "Bonus e Premi",
             "Backup",
-            "Retention",  # NUOVO
             "Classifica"
         ])
 
@@ -550,7 +479,7 @@ elif scelta == "Dashboard":
 
             # Filtro per Anno
             st.markdown("### Filtro per Anno")
-            anni_disponibili = sorted(df_progetti['effective_start_date'].dt.year.dropna().unique())
+            anni_disponibili = sorted(df['effective_start_date'].dt.year.dropna().unique())
             if len(anni_disponibili) == 0:
                 st.warning("Nessun dato disponibile per i filtri.")
                 st.stop()
@@ -566,9 +495,9 @@ elif scelta == "Dashboard":
                 st.error(f"Errore nella selezione di Anno: {e}")
                 st.stop()
 
-            df_filtered = df_progetti[
-                (df_progetti['effective_start_date'] >= pd.Timestamp(start_date)) &
-                (df_progetti['effective_start_date'] <= pd.Timestamp(end_date))
+            df_filtered = df[
+                (df['effective_start_date'] >= pd.Timestamp(start_date)) &
+                (df['effective_start_date'] <= pd.Timestamp(end_date))
             ]
 
             if df_filtered.empty:
@@ -577,7 +506,7 @@ elif scelta == "Dashboard":
                 # Tempo Medio Globale (Solo Progetti Una Tantum)
                 df_comp = df_filtered[
                     (df_filtered['stato_progetto'] == 'Completato') &
-                    (df_filtered['tempo_previsto'] > 0)  # Solo progetti con tempo_previsto positivo
+                    (df_filtered['start_date_dt'].isna())  # Escludi progetti continuativi
                 ]
                 tempo_medio_globale = df_comp['tempo_totale'].dropna().mean() or 0
                 st.metric("Tempo Medio Globale (giorni)", round(tempo_medio_globale,2))
@@ -625,7 +554,7 @@ elif scelta == "Dashboard":
 
                 st.subheader("Capacità di Carico e Over Capacity")
                 df_capacity = carica_recruiters_capacity()
-                recruiters_unici = df_progetti['sales_recruiter'].unique()
+                recruiters_unici = df['sales_recruiter'].unique()
                 cap_df = pd.DataFrame({'sales_recruiter': recruiters_unici})
                 cap_df = cap_df.merge(attivi_count, on='sales_recruiter', how='left').fillna(0)
                 cap_df = cap_df.merge(df_capacity, on='sales_recruiter', how='left').fillna(5)
@@ -656,13 +585,24 @@ elif scelta == "Dashboard":
             st.subheader("Progetti che si chiuderanno nei prossimi giorni/settimane")
             st.write("""
                 Escludiamo i progetti che hanno tempo_previsto=0 (non impostato).
-                Calcoliamo la data di fine calcolata = effective_start_date + tempo_previsto (giorni).
+                Calcoliamo la data di fine calcolata = effective_start_date + tempo_previsto (giorni) per i progetti continuativi.
+                Per i progetti una tantum, calcoliamo fine_calcolata = oggi + tempo_previsto.
             """)
 
             # Utilizza 'effective_start_date' invece di solo 'data_inizio'
-            df_ok = df_progetti[(df_progetti['tempo_previsto'].notna()) & (df_progetti['tempo_previsto'] > 0)]
-            df_ok['fine_calcolata'] = df_ok['effective_start_date'] + pd.to_timedelta(df_ok['tempo_previsto'], unit='D')
+            df_ok = df[(df['tempo_previsto'].notna()) & (df['tempo_previsto'] > 0)]
 
+            # Calcola 'fine_calcolata' differenziando tra progetti continuativi e una tantum
+            # Per progetti continuativi: effective_start_date + tempo_previsto
+            # Per progetti una tantum: today + tempo_previsto
+            today = datetime.today()
+            df_ok['fine_calcolata'] = df_ok.apply(
+                lambda row: row['effective_start_date'] + pd.to_timedelta(row['tempo_previsto'], unit='D') 
+                if pd.notna(row['start_date_dt']) else today + pd.to_timedelta(row['tempo_previsto'], unit='D'),
+                axis=1
+            )
+
+            # Filtra i progetti in corso
             df_incorso = df_ok[df_ok['stato_progetto'] == 'In corso'].copy()
 
             st.subheader("Mostriamo i Progetti In Corso con tempo_previsto > 0")
@@ -670,8 +610,8 @@ elif scelta == "Dashboard":
 
             st.write("**Vuoi vedere quali progetti si chiuderanno entro X giorni da oggi?**")
             orizzonte_giorni = st.number_input("Seleziona i giorni di orizzonte", value=14, min_value=1)
-            today = datetime.today()
-            df_prossimi = df_incorso[df_incorso['fine_calcolata'] <= (today + timedelta(days=orizzonte_giorni))]
+            today_plus_orizzonte = today + timedelta(days=orizzonte_giorni)
+            df_prossimi = df_incorso[df_incorso['fine_calcolata'] <= today_plus_orizzonte]
             if not df_prossimi.empty:
                 st.info(f"Progetti in corso che si chiuderanno entro {orizzonte_giorni} giorni:")
                 st.dataframe(df_prossimi[['cliente','sales_recruiter','fine_calcolata']])
@@ -679,7 +619,7 @@ elif scelta == "Dashboard":
                 st.subheader("Recruiter che si libereranno in questo orizzonte")
                 closings = df_prossimi.groupby('sales_recruiter').size().reset_index(name='progetti_che_chiudono')
                 df_capacity = carica_recruiters_capacity()
-                df_attivi = df_progetti[df_progetti['stato_progetto'].isin(["In corso","Bloccato"])]
+                df_attivi = df[df['stato_progetto'].isin(["In corso","Bloccato"])]
                 attivi_count = df_attivi.groupby('sales_recruiter').size().reset_index(name='Progetti Attivi')
 
                 rec_df = df_capacity.merge(attivi_count, on='sales_recruiter', how='left').fillna(0)
@@ -710,7 +650,7 @@ elif scelta == "Dashboard":
                 Esempio: 4 stelle => 300€, 5 stelle => 500€.
             """)
             st.markdown("### Filtro per Anno")
-            anni_disponibili_bonus = sorted(df_progetti['recensione_data_dt'].dt.year.dropna().unique())
+            anni_disponibili_bonus = sorted(df['recensione_data_dt'].dt.year.dropna().unique())
             if len(anni_disponibili_bonus) == 0:
                 st.warning("Nessun dato disponibile per il filtro dei bonus.")
                 st.stop()
@@ -727,9 +667,9 @@ elif scelta == "Dashboard":
                 st.stop()
 
             # Calcola il bonus totale per ogni recruiter
-            df_bonus_totale = df_progetti[
-                (df_progetti['recensione_data_dt'] >= pd.Timestamp(start_date_bonus)) & 
-                (df_progetti['recensione_data_dt'] <= pd.Timestamp(end_date_bonus))
+            df_bonus_totale = df[
+                (df['recensione_data_dt'] >= pd.Timestamp(start_date_bonus)) & 
+                (df['recensione_data_dt'] <= pd.Timestamp(end_date_bonus))
             ].copy()
             df_bonus_totale['bonus'] = df_bonus_totale['recensione_stelle'].fillna(0).astype(int).apply(calcola_bonus)
             bonus_rec = df_bonus_totale.groupby('sales_recruiter')['bonus'].sum().reset_index()
@@ -786,10 +726,10 @@ elif scelta == "Dashboard":
 
             # **Nuova Implementazione: Premiazione Basata sulle Recensioni a 5 Stelle**
             # Contare il numero di recensioni a 5 stelle per ogni recruiter
-            df_reviews_5 = df_progetti[
-                (df_progetti['recensione_stelle'] == 5) &
-                (df_progetti['recensione_data_dt'] >= pd.Timestamp(start_date_bonus)) &
-                (df_progetti['recensione_data_dt'] <= pd.Timestamp(end_date_bonus))
+            df_reviews_5 = df[
+                (df['recensione_stelle'] == 5) &
+                (df['recensione_data_dt'] >= pd.Timestamp(start_date_bonus)) &
+                (df['recensione_data_dt'] <= pd.Timestamp(end_date_bonus))
             ]
 
             if not df_reviews_5.empty:
@@ -836,140 +776,13 @@ elif scelta == "Dashboard":
                         restore_from_zip(uploaded_zip)
 
         ################################
-        # TAB 5: Retention  # NUOVO
-        ################################
-        with tab5:
-            st.subheader("Analisi della Retention")
-
-            # Carica i dati dei candidati
-            df_candidati = carica_candidati_completo()
-            if df_candidati.empty:
-                st.info("Nessun dato sui candidati disponibile.")
-            else:
-                # Carica i dati dei progetti per ottenere il nome del recruiter
-                df_recruiters = carica_recruiters()
-                recruiters_dict = {row['id']: row['nome'] for row in df_recruiters}
-
-                # Seleziona un intervallo di date per l'analisi
-                st.markdown("### Filtro per Intervallo di Date")
-                with st.form("form_retention_filter_dashboard"):
-                    start_date_retention = st.date_input("Data Inizio", value=datetime.today().date().replace(year=datetime.today().year -1))
-                    end_date_retention = st.date_input("Data Fine", value=datetime.today().date())
-                    submit_retention = st.form_submit_button("Calcola Retention")
-                
-                if submit_retention:
-                    if start_date_retention > end_date_retention:
-                        st.error("La Data Inizio non può essere successiva alla Data Fine.")
-                    else:
-                        # Filtra i candidati inseriti nell'intervallo
-                        df_filtered = df_candidati[
-                            (df_candidati['data_inserimento_dt'] >= pd.Timestamp(start_date_retention)) &
-                            (df_candidati['data_inserimento_dt'] <= pd.Timestamp(end_date_retention))
-                        ]
-
-                        total_candidati = len(df_filtered)
-                        total_dimissioni = df_filtered['data_dimissioni_dt'].notna().sum()
-
-                        st.metric("Totale Candidati Inseriti", total_candidati)
-                        st.metric("Totale Dimissioni", total_dimissioni)
-
-                        # Durata Media dei Venditori per Progetto
-                        durata_media = calcola_durata_media(df_filtered)
-                        if durata_media.empty:
-                            st.info("Nessun venditore ha lasciato un progetto in questo intervallo.")
-                        else:
-                            # Aggiungi nomi dei recruiter e progetti
-                            df_recruiters = carica_recruiters()
-                            recruiters_dict = {row['id']: row['nome'] for row in df_recruiters}
-
-                            # Carica i nomi dei progetti
-                            conn = get_connection()
-                            c = conn.cursor()
-                            c.execute("SELECT id, cliente FROM progetti")
-                            progetti = c.fetchall()
-                            progetti_dict = {row['id']: row['cliente'] for row in progetti}
-                            conn.close()
-
-                            durata_media['recruiter'] = durata_media['recruiter_id'].map(recruiters_dict)
-                            durata_media['progetto'] = durata_media['progetto_id'].map(progetti_dict)
-                            durata_media = durata_media.dropna(subset=['recruiter', 'progetto'])
-
-                            st.markdown("#### Durata Media dei Venditori per Progetto")
-                            st.dataframe(durata_media[['recruiter', 'progetto', 'durata_giorni']].rename(columns={
-                                'recruiter': 'Recruiter',
-                                'progetto': 'Progetto',
-                                'durata_giorni': 'Durata Media (giorni)'
-                            }))
-
-                            # Grafico: Durata Media per Recruiter
-                            fig_durata = px.bar(
-                                durata_media,
-                                x='recruiter',
-                                y='durata_giorni',
-                                color='progetto',
-                                labels={'recruiter': 'Recruiter', 'durata_giorni': 'Durata Media (giorni)', 'progetto': 'Progetto'},
-                                title='Durata Media dei Venditori per Recruiter e Progetto'
-                            )
-                            st.plotly_chart(fig_durata, use_container_width=True)
-
-                        # Numero di Inserimenti e Dimissioni per Recruiter
-                        conta_dimissioni = conta_dimissioni_per_recruiter(df_filtered)
-                        conta_dimissioni['recruiter'] = conta_dimissioni['recruiter_id'].map(recruiters_dict)
-                        conta_dimissioni = conta_dimissioni.dropna(subset=['recruiter'])
-
-                        st.markdown("#### Numero di Inserimenti e Dimissioni per Recruiter")
-                        st.dataframe(conta_dimissioni[['recruiter', 'inserimenti', 'dimissioni']].rename(columns={
-                            'recruiter': 'Recruiter',
-                            'inserimenti': 'Inserimenti',
-                            'dimissioni': 'Dimissioni'
-                        }))
-
-                        # Grafico: Inserimenti vs Dimissioni per Recruiter
-                        fig_inserimenti = px.bar(
-                            conta_dimissioni,
-                            x='recruiter',
-                            y=['inserimenti', 'dimissioni'],
-                            barmode='group',
-                            labels={'recruiter': 'Recruiter', 'value': 'Numero'},
-                            title='Inserimenti vs Dimissioni per Recruiter',
-                            color_discrete_sequence=['#636EFA', '#EF553B']
-                        )
-                        st.plotly_chart(fig_inserimenti, use_container_width=True)
-
-                        # Recruiter con più venditori andati via
-                        top_recruiters = recruiter_piu_dimissioni(df_filtered)
-                        if top_recruiters is not None and not top_recruiters.empty:
-                            top_recruiters['recruiter'] = top_recruiters['recruiter_id'].map(recruiters_dict)
-                            top_recruiters = top_recruiters.dropna(subset=['recruiter'])
-                            max_dimissioni = top_recruiters['dimissioni'].max()
-                            st.markdown("#### Recruiter con più Venditori Andati Via")
-                            st.dataframe(top_recruiters[['recruiter', 'dimissioni']].rename(columns={
-                                'recruiter': 'Recruiter',
-                                'dimissioni': 'Dimissioni Totali'
-                            }))
-                            
-                            # Grafico: Top Recruiter Dimissioni
-                            fig_top_rec = px.bar(
-                                top_recruiters,
-                                x='recruiter',
-                                y='dimissioni',
-                                labels={'recruiter': 'Recruiter', 'dimissioni': 'Dimissioni Totali'},
-                                title='Recruiter con più Venditori Andati Via',
-                                color='dimissioni',
-                                color_continuous_scale='Reds'
-                            )
-                            st.plotly_chart(fig_top_rec, use_container_width=True)
-                        else:
-                            st.info("Nessun recruiter ha venditori andati via in questo intervallo.")
-
-        ################################
-        # TAB 6: Classifica
+        # TAB 5: Classifica
         ################################
         with tab6:
             st.subheader("Classifica (Matplotlib)")
 
             st.markdown("### Filtro per Anno")
-            anni_leader = sorted(df_progetti['effective_start_date'].dt.year.dropna().unique())
+            anni_leader = sorted(df['effective_start_date'].dt.year.dropna().unique())
             if len(anni_leader) == 0:
                 st.warning("Nessun dato disponibile per il leaderboard.")
                 st.stop()
@@ -985,9 +798,9 @@ elif scelta == "Dashboard":
                 st.error(f"Errore nella selezione di Anno per il leaderboard: {e}")
                 st.stop()
 
-            df_leader_filtered = df_progetti[
-                (df_progetti['effective_start_date'] >= pd.Timestamp(start_date_leader)) &
-                (df_progetti['effective_start_date'] <= pd.Timestamp(end_date_leader))
+            df_leader_filtered = df[
+                (df['effective_start_date'] >= pd.Timestamp(start_date_leader)) &
+                (df['effective_start_date'] <= pd.Timestamp(end_date_leader))
             ]
 
             st.write(f"Anno in analisi: {anno_leader}")
@@ -1036,7 +849,7 @@ elif scelta == "Dashboard":
             st.markdown("**2) Recruiter più veloce (Tempo Medio)**")
             df_comp = df_leader_filtered[
                 (df_leader_filtered['stato_progetto'] == 'Completato') &
-                (df_leader_filtered['tempo_previsto'] > 0)  # Solo progetti con tempo_previsto positivo
+                (df_leader_filtered['start_date_dt'].isna())  # Solo progetti una tantum
             ].copy()
             veloce = df_comp.groupby('sales_recruiter')['tempo_totale'].mean().reset_index()
             veloce['tempo_totale'] = veloce['tempo_totale'].fillna(0)
