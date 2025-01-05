@@ -104,8 +104,7 @@ def inserisci_dati(cliente, settore_id, pm_id, rec_id, data_inizio):
 def carica_dati_completo():
     """
     Carica i progetti uniti a settori, pm, recruiters, includendo 'tempo_previsto'.
-    Aggiunge colonne datetime come 'data_inizio_dt', 'start_date_dt', 'recensione_data_dt', e 'data_fine_dt'.
-    Crea una colonna 'effective_start_date' che unisce 'data_inizio_dt' e 'start_date_dt'.
+    Aggiunge una colonna 'effective_start_date' che unisce 'data_inizio' e 'start_date'.
     """
     conn = get_connection()
     c = conn.cursor()
@@ -147,11 +146,10 @@ def carica_dati_completo():
         df["tempo_previsto"] = pd.to_numeric(df["tempo_previsto"], errors="coerce")
         df["tempo_previsto"] = df["tempo_previsto"].fillna(0).astype(int)
     
-    # Aggiungi colonne datetime
+    # Aggiungi 'data_inizio_dt' e 'start_date_dt'
     df['data_inizio_dt'] = pd.to_datetime(df['data_inizio'], errors='coerce')
     df['start_date_dt'] = pd.to_datetime(df['start_date'], errors='coerce')
     df['recensione_data_dt'] = pd.to_datetime(df['recensione_data'], errors='coerce')
-    df['data_fine_dt'] = pd.to_datetime(df['data_fine'], errors='coerce')  # **Aggiunta Necessaria**
     
     # Crea 'effective_start_date' che utilizza 'data_inizio_dt' se presente, altrimenti 'start_date_dt'
     df['effective_start_date'] = df['data_inizio_dt'].combine_first(df['start_date_dt'])
@@ -573,13 +571,9 @@ elif scelta == "Dashboard":
                     st.error(f"Errore nella selezione di Anno: {e}")
                     st.stop()
 
-                # Modifica della Logica di Filtraggio per Includere Progetti Attivi durante l'Anno Selezionato
                 df_filtered = df[
-                    (df['effective_start_date'] <= pd.Timestamp(end_date)) & 
-                    (
-                        (df['data_fine_dt'] >= pd.Timestamp(start_date)) |
-                        (df['data_fine_dt'].isna())
-                    )
+                    (df['effective_start_date'] >= pd.Timestamp(start_date)) &
+                    (df['effective_start_date'] <= pd.Timestamp(end_date))
                 ]
             else:
                 # Usa tutti i dati
@@ -629,13 +623,8 @@ elif scelta == "Dashboard":
                     st.plotly_chart(fig_sett, use_container_width=True)
 
                     st.subheader("Progetti Attivi (In corso + Bloccato)")
-                    
-                    # Modifica: Includi tutti i progetti attivi durante l'anno selezionato
-                    df_attivi = df_filtered.copy()
-                    
-                    # Conta i progetti attivi per recruiter
+                    df_attivi = df_filtered[df_filtered['stato_progetto'].isin(["In corso", "Bloccato"])]
                     attivi_count = df_attivi.groupby('sales_recruiter').size().reset_index(name='Progetti Attivi')
-                    
                     fig_attivi = px.bar(
                         attivi_count,
                         x='sales_recruiter',
