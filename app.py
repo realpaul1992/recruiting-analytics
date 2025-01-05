@@ -158,7 +158,7 @@ def carica_dati_completo():
     return df
 
 #######################################
-# FUNZIONI PER GESTIONE CANDIDATI
+# FUNZIONI PER GESTIONE CANDIDATI  # NUOVO
 #######################################
 
 def carica_candidati_completo():
@@ -225,6 +225,23 @@ def recruiter_piu_dimissioni(df_candidati):
     max_dimissioni = recruiter_count['dimissioni'].max()
     top_recruiters = recruiter_count[recruiter_count['dimissioni'] == max_dimissioni]
     return top_recruiters
+
+#######################################
+# DEFINIZIONE DELLA FUNZIONE calcola_bonus
+#######################################
+def calcola_bonus(stelle):
+    """
+    Calcola il bonus in base al numero di stelle della recensione.
+    - 4 stelle: 300€
+    - 5 stelle: 500€
+    - Altri valori: 0€
+    """
+    if stelle == 4:
+        return 300
+    elif stelle == 5:
+        return 500
+    else:
+        return 0
 
 #######################################
 # GESTIONE BACKUP in ZIP (Esportazione + Ripristino)
@@ -948,129 +965,7 @@ elif scelta == "Dashboard":
         ################################
         # TAB 5: Retention  # NUOVO
         ################################
-        with tab5:
-            st.subheader("Analisi della Retention")
-
-            # Carica i dati dei candidati
-            df_candidati = carica_candidati_completo()
-            if df_candidati.empty:
-                st.info("Nessun dato sui candidati disponibile.")
-            else:
-                # Carica i dati dei progetti per ottenere il nome del recruiter
-                df_recruiters = carica_recruiters()
-                recruiters_dict = {row['id']: row['nome'] for row in df_recruiters}
-
-                # Seleziona un intervallo di date per l'analisi
-                st.markdown("### Filtro per Intervallo di Date")
-                with st.form("form_retention_filter_dashboard"):
-                    start_date_retention = st.date_input("Data Inizio", value=datetime.today().date().replace(year=datetime.today().year -1))
-                    end_date_retention = st.date_input("Data Fine", value=datetime.today().date())
-                    submit_retention = st.form_submit_button("Calcola Retention")
-                
-                if submit_retention:
-                    if start_date_retention > end_date_retention:
-                        st.error("La Data Inizio non può essere successiva alla Data Fine.")
-                    else:
-                        # Filtra i candidati inseriti nell'intervallo
-                        df_filtered = df_candidati[
-                            (df_candidati['data_inserimento_dt'] >= pd.Timestamp(start_date_retention)) &
-                            (df_candidati['data_inserimento_dt'] <= pd.Timestamp(end_date_retention))
-                        ]
-
-                        total_candidati = len(df_filtered)
-                        total_dimissioni = df_filtered['data_dimissioni_dt'].notna().sum()
-
-                        st.metric("Totale Candidati Inseriti", total_candidati)
-                        st.metric("Totale Dimissioni", total_dimissioni)
-
-                        # Durata Media dei Venditori per Progetto
-                        durata_media = calcola_durata_media(df_filtered)
-                        if durata_media.empty:
-                            st.info("Nessun venditore ha lasciato un progetto in questo intervallo.")
-                        else:
-                            # Aggiungi nomi dei recruiter e progetti
-                            df_recruiters = carica_recruiters()
-                            recruiters_dict = {row['id']: row['nome'] for row in df_recruiters}
-
-                            # Carica i nomi dei progetti
-                            conn = get_connection()
-                            c = conn.cursor()
-                            c.execute("SELECT id, cliente FROM progetti")
-                            progetti = c.fetchall()
-                            progetti_dict = {row['id']: row['cliente'] for row in progetti}
-                            conn.close()
-
-                            durata_media['recruiter'] = durata_media['recruiter_id'].map(recruiters_dict)
-                            durata_media['progetto'] = durata_media['progetto_id'].map(progetti_dict)
-                            durata_media = durata_media.dropna(subset=['recruiter', 'progetto'])
-
-                            st.markdown("#### Durata Media dei Venditori per Progetto")
-                            st.dataframe(durata_media[['recruiter', 'progetto', 'durata_giorni']].rename(columns={
-                                'recruiter': 'Recruiter',
-                                'progetto': 'Progetto',
-                                'durata_giorni': 'Durata Media (giorni)'
-                            }))
-
-                            # Grafico: Durata Media per Recruiter
-                            fig_durata = px.bar(
-                                durata_media,
-                                x='recruiter',
-                                y='durata_giorni',
-                                color='progetto',
-                                labels={'recruiter': 'Recruiter', 'durata_giorni': 'Durata Media (giorni)', 'progetto': 'Progetto'},
-                                title='Durata Media dei Venditori per Recruiter e Progetto'
-                            )
-                            st.plotly_chart(fig_durata, use_container_width=True)
-
-                        # Numero di Inserimenti e Dimissioni per Recruiter
-                        conta_dimissioni = conta_dimissioni_per_recruiter(df_filtered)
-                        conta_dimissioni['recruiter'] = conta_dimissioni['recruiter_id'].map(recruiters_dict)
-                        conta_dimissioni = conta_dimissioni.dropna(subset=['recruiter'])
-
-                        st.markdown("#### Numero di Inserimenti e Dimissioni per Recruiter")
-                        st.dataframe(conta_dimissioni[['recruiter', 'inserimenti', 'dimissioni']].rename(columns={
-                            'recruiter': 'Recruiter',
-                            'inserimenti': 'Inserimenti',
-                            'dimissioni': 'Dimissioni'
-                        }))
-
-                        # Grafico: Inserimenti vs Dimissioni per Recruiter
-                        fig_inserimenti = px.bar(
-                            conta_dimissioni,
-                            x='recruiter',
-                            y=['inserimenti', 'dimissioni'],
-                            barmode='group',
-                            labels={'recruiter': 'Recruiter', 'value': 'Numero'},
-                            title='Inserimenti vs Dimissioni per Recruiter',
-                            color_discrete_sequence=['#636EFA', '#EF553B']
-                        )
-                        st.plotly_chart(fig_inserimenti, use_container_width=True)
-
-                        # Recruiter con più venditori andati via
-                        top_recruiters = recruiter_piu_dimissioni(df_filtered)
-                        if top_recruiters is not None and not top_recruiters.empty:
-                            top_recruiters['recruiter'] = top_recruiters['recruiter_id'].map(recruiters_dict)
-                            top_recruiters = top_recruiters.dropna(subset=['recruiter'])
-                            max_dimissioni = top_recruiters['dimissioni'].max()
-                            st.markdown("#### Recruiter con più Venditori Andati Via")
-                            st.dataframe(top_recruiters[['recruiter', 'dimissioni']].rename(columns={
-                                'recruiter': 'Recruiter',
-                                'dimissioni': 'Dimissioni Totali'
-                            }))
-                            
-                            # Grafico: Top Recruiter Dimissioni
-                            fig_top_rec = px.bar(
-                                top_recruiters,
-                                x='recruiter',
-                                y='dimissioni',
-                                labels={'recruiter': 'Recruiter', 'dimissioni': 'Dimissioni Totali'},
-                                title='Recruiter con più Venditori Andati Via',
-                                color='dimissioni',
-                                color_continuous_scale='Reds'
-                            )
-                            st.plotly_chart(fig_top_rec, use_container_width=True)
-                        else:
-                            st.info("Nessun recruiter ha venditori andati via in questo intervallo.")
+        # La scheda Retention è già stata aggiunta sopra come tab5
 
         ################################
         # TAB 6: Classifica
