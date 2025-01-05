@@ -1179,6 +1179,9 @@ elif scelta == "Dashboard":
             if df_filtered_recr.empty:
                 st.info("Nessun dato disponibile per la selezione.")
             else:
+                #############################################
+                # 1. Tempo Medio di Chiusura
+                #############################################
                 # Tempo Medio di Chiusura
                 df_closed_recr = df_filtered_recr[df_filtered_recr['stato_progetto'] == 'Completato']
                 if df_closed_recr.empty:
@@ -1201,11 +1204,17 @@ elif scelta == "Dashboard":
                     )
                     st.plotly_chart(fig_sett_recr, use_container_width=True)
 
+                #############################################
+                # 2. Progetti Attivi
+                #############################################
                 # Progetti Attivi
                 df_attivi_recr = df_filtered_recr[df_filtered_recr['stato_progetto'].isin(["In corso", "Bloccato"])]
                 progetti_attivi_recr = len(df_attivi_recr)
                 st.metric("Progetti Attivi", progetti_attivi_recr)
 
+                #############################################
+                # 3. Capacità di Carico
+                #############################################
                 # Capacità di Carico
                 df_capacity = carica_recruiters_capacity()
                 recruiter_capacity = df_capacity[df_capacity['sales_recruiter'] == selected_recruiter_name]
@@ -1228,13 +1237,135 @@ elif scelta == "Dashboard":
                 )
                 st.plotly_chart(fig_capacity_recr, use_container_width=True)
 
-#######################################
-# 3. GESTISCI OPZIONI
-#######################################
-elif scelta == "Gestisci Opzioni":
-    st.write("Gestione settori, PM, recruiters e capacity in manage_options.py")
-    st.markdown("### Nota")
-    st.markdown("""
-    La gestione delle opzioni (settori, Project Managers, Recruiters e Capacità) è gestita nel file `manage_options.py`.
-    Assicurati di navigare a quella pagina per gestire le tue opzioni.
-    """)
+                #############################################
+                # 4. Numero di Inserimenti e Dimissioni
+                #############################################
+                st.markdown("### Numero di Inserimenti e Dimissioni")
+                if df_candidati.empty:
+                    st.info("Nessun dato sui candidati disponibile.")
+                else:
+                    # Filtra i candidati per il recruiter selezionato e l'anno (se selezionato)
+                    if anno_recr != "Tutti":
+                        df_candidati_filtered = df_candidati[
+                            (df_candidati['recruiter_id'] == rec_sel_recr[0]) &
+                            (df_candidati['data_inserimento_dt'] >= pd.Timestamp(start_date_recr)) &
+                            (df_candidati['data_inserimento_dt'] <= pd.Timestamp(end_date_recr))
+                        ]
+                    else:
+                        df_candidati_filtered = df_candidati[df_candidati['recruiter_id'] == rec_sel_recr[0]].copy()
+
+                    # Numero di Inserimenti
+                    inserimenti = df_candidati_filtered.shape[0]
+
+                    # Numero di Dimissioni
+                    dimissioni = df_candidati_filtered['data_dimissioni_dt'].notna().sum()
+
+                    # Display delle metriche
+                    col_inserimenti, col_dimissioni = st.columns(2)
+                    col_inserimenti.metric("Numero di Inserimenti", inserimenti)
+                    col_dimissioni.metric("Numero di Dimissioni", dimissioni)
+
+                    # Grafico Inserimenti e Dimissioni
+                    st.markdown("#### Inserimenti vs Dimissioni")
+                    df_ins_dim = pd.DataFrame({
+                        'Categoria': ['Inserimenti', 'Dimissioni'],
+                        'Conteggio': [inserimenti, dimissioni]
+                    })
+                    fig_ins_dim = px.bar(
+                        df_ins_dim,
+                        x='Categoria',
+                        y='Conteggio',
+                        labels={'Conteggio': 'Numero', 'Categoria': 'Categoria'},
+                        title='Inserimenti vs Dimissioni',
+                        color='Categoria',
+                        color_discrete_sequence=['#636EFA', '#EF553B']
+                    )
+                    st.plotly_chart(fig_ins_dim, use_container_width=True)
+
+                #############################################
+                # 5. Bonus Ottenuti
+                #############################################
+                st.markdown("### Bonus Ottenuti")
+                if df_closed_recr.empty:
+                    st.info("Nessun progetto completato per calcolare i bonus.")
+                else:
+                    # Calcola il bonus per ogni progetto completato
+                    df_closed_recr['bonus'] = df_closed_recr['recensione_stelle'].fillna(0).astype(int).apply(calcola_bonus)
+                    bonus_totale = df_closed_recr['bonus'].sum()
+
+                    # Display della metrica
+                    st.metric("Bonus Ottenuti (€)", bonus_totale)
+
+                    # Grafico Bonus per Progetto
+                    st.markdown("#### Bonus per Progetto Completato")
+                    bonus_per_progetto = df_closed_recr.groupby('cliente')['bonus'].sum().reset_index()
+                    fig_bonus_progetto = px.bar(
+                        bonus_per_progetto,
+                        x='cliente',
+                        y='bonus',
+                        labels={'bonus': 'Bonus (€)', 'cliente': 'Cliente'},
+                        title='Bonus Totale per Progetto',
+                        color='bonus',
+                        color_continuous_scale='Greens'
+                    )
+                    st.plotly_chart(fig_bonus_progetto, use_container_width=True)
+
+                #############################################
+                # 6. Altre Metriche Suggerite
+                #############################################
+                st.markdown("### Altre Metriche")
+                # Numero Totale di Progetti Gestiti
+                num_progetti_gestiti = df_filtered_recr.shape[0]
+                st.metric("Numero Totale di Progetti Gestiti", num_progetti_gestiti)
+
+                # Conversion Rate (Inserimenti a Placement)
+                if inserimenti > 0:
+                    placements = df_candidati_filtered['data_placement_dt'].notna().sum()
+                    conversion_rate = (placements / inserimenti) * 100
+                    st.metric("Conversion Rate (%)", f"{conversion_rate:.2f}%")
+                else:
+                    st.metric("Conversion Rate (%)", "N/A")
+
+                # Tempo Medio di Inserimento
+                df_placements = df_candidati_filtered.dropna(subset=['data_placement_dt'])
+                if not df_placements.empty:
+                    df_placements['tempo_inserimento'] = (df_placements['data_placement_dt'] - df_placements['data_inserimento_dt']).dt.days
+                    tempo_medio_inserimento = df_placements['tempo_inserimento'].mean()
+                    st.metric("Tempo Medio di Inserimento (giorni)", round(tempo_medio_inserimento,2))
+                else:
+                    st.metric("Tempo Medio di Inserimento (giorni)", "N/A")
+
+                # Retention Rate (opzionale)
+                if inserimenti > 0:
+                    retention = ((inserimenti - dimissioni) / inserimenti) * 100
+                    st.metric("Retention Rate (%)", f"{retention:.2f}%")
+                else:
+                    st.metric("Retention Rate (%)", "N/A")
+
+                # Grafico Conversion Rate
+                if inserimenti > 0:
+                    df_conversion = pd.DataFrame({
+                        'Categoria': ['Inserimenti', 'Placements'],
+                        'Conteggio': [inserimenti, placements]
+                    })
+                    fig_conversion = px.bar(
+                        df_conversion,
+                        x='Categoria',
+                        y='Conteggio',
+                        labels={'Conteggio': 'Numero', 'Categoria': 'Categoria'},
+                        title='Inserimenti vs Placements',
+                        color='Categoria',
+                        color_discrete_sequence=['#636EFA', '#EF553B']
+                    )
+                    st.plotly_chart(fig_conversion, use_container_width=True)
+
+    #######################################
+    # 3. GESTISCI OPZIONI
+    #######################################
+    elif scelta == "Gestisci Opzioni":
+        st.write("Gestione settori, PM, recruiters e capacity in manage_options.py")
+        st.markdown("### Nota")
+        st.markdown("""
+        La gestione delle opzioni (settori, Project Managers, Recruiters e Capacità) è gestita nel file `manage_options.py`.
+        Assicurati di navigare a quella pagina per gestire le tue opzioni.
+        """)
