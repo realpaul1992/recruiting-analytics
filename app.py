@@ -104,7 +104,8 @@ def inserisci_dati(cliente, settore_id, pm_id, rec_id, data_inizio):
 def carica_dati_completo():
     """
     Carica i progetti uniti a settori, pm, recruiters, includendo 'tempo_previsto'.
-    Aggiunge una colonna 'effective_start_date' che unisce 'data_inizio' e 'start_date'.
+    Aggiunge colonne datetime come 'data_inizio_dt', 'start_date_dt', 'recensione_data_dt', e 'data_fine_dt'.
+    Crea una colonna 'effective_start_date' che unisce 'data_inizio_dt' e 'start_date_dt'.
     """
     conn = get_connection()
     c = conn.cursor()
@@ -146,10 +147,11 @@ def carica_dati_completo():
         df["tempo_previsto"] = pd.to_numeric(df["tempo_previsto"], errors="coerce")
         df["tempo_previsto"] = df["tempo_previsto"].fillna(0).astype(int)
     
-    # Aggiungi 'data_inizio_dt' e 'start_date_dt'
+    # Aggiungi colonne datetime
     df['data_inizio_dt'] = pd.to_datetime(df['data_inizio'], errors='coerce')
     df['start_date_dt'] = pd.to_datetime(df['start_date'], errors='coerce')
     df['recensione_data_dt'] = pd.to_datetime(df['recensione_data'], errors='coerce')
+    df['data_fine_dt'] = pd.to_datetime(df['data_fine'], errors='coerce')  # **Aggiunta Necessaria**
     
     # Crea 'effective_start_date' che utilizza 'data_inizio_dt' se presente, altrimenti 'start_date_dt'
     df['effective_start_date'] = df['data_inizio_dt'].combine_first(df['start_date_dt'])
@@ -571,7 +573,7 @@ elif scelta == "Dashboard":
                     st.error(f"Errore nella selezione di Anno: {e}")
                     st.stop()
 
-                # **Modifica della Logica di Filtraggio per Includere Progetti Attivi durante l'Anno Selezionato**
+                # Modifica della Logica di Filtraggio per Includere Progetti Attivi durante l'Anno Selezionato
                 df_filtered = df[
                     (df['effective_start_date'] <= pd.Timestamp(end_date)) & 
                     (
@@ -628,7 +630,7 @@ elif scelta == "Dashboard":
 
                     st.subheader("Progetti Attivi (In corso + Bloccato)")
                     
-                    # **Modifica: Rimuovi il filtro 'stato_progetto' per includere tutti i progetti attivi**
+                    # Modifica: Includi tutti i progetti attivi durante l'anno selezionato
                     df_attivi = df_filtered.copy()
                     
                     # Conta i progetti attivi per recruiter
