@@ -758,10 +758,6 @@ elif scelta == "Dashboard":
             else:
                 # Usa tutti i dati
                 df_bonus_totale = df.copy()
-                
-                # Definisci start_date_bonus e end_date_bonus come min e max date
-                start_date_bonus = df_bonus_totale['recensione_data_dt'].min()
-                end_date_bonus = df_bonus_totale['recensione_data_dt'].max()
             
             # Verifica la presenza della colonna 'recensione_stelle'
             if 'recensione_stelle' not in df_bonus_totale.columns:
@@ -817,14 +813,8 @@ elif scelta == "Dashboard":
 
             # **Premiazione Basata sulle Recensioni a 5 Stelle**
             st.subheader("Premio Annuale (Recensioni a 5 stelle)")
-            if anno_bonus != "Tutti":
-                df_reviews_5 = df_bonus_totale[
-                    (df_bonus_totale['recensione_stelle'] == 5) &
-                    (df_bonus_totale['recensione_data_dt'] >= pd.Timestamp(start_date_bonus)) &
-                    (df_bonus_totale['recensione_data_dt'] <= pd.Timestamp(end_date_bonus))
-                ]
-            else:
-                df_reviews_5 = df_bonus_totale[df_bonus_totale['recensione_stelle'] == 5]
+            # Correzione: Utilizzare 'df_leader_comp' invece di 'df_bonus_totale'
+            df_reviews_5 = df_leader_comp[df_leader_comp['recensione_stelle'] == 5]
 
             if not df_reviews_5.empty:
                 count_reviews = df_reviews_5.groupby('sales_recruiter').size().reset_index(name='recensioni_5_stelle')
@@ -998,7 +988,7 @@ elif scelta == "Dashboard":
         # TAB 6: Classifica
         ################################
         with tab6:
-            st.subheader("Classifica (Plotly)")
+            st.subheader("Classifica")
 
             st.markdown("### Filtro per Anno")
             anni_leader = sorted(df['effective_start_date'].dt.year.dropna().unique())
@@ -1027,9 +1017,6 @@ elif scelta == "Dashboard":
             else:
                 # Usa tutti i dati
                 df_leader_filtered = df.copy()
-                # Definisci start_date_leader e end_date_leader come min e max date
-                start_date_leader = df_leader_filtered['effective_start_date'].min()
-                end_date_leader = df_leader_filtered['effective_start_date'].max()
 
             # Filtra solo i progetti completati e una tantum
             df_leader_comp = df_leader_filtered[
@@ -1038,6 +1025,11 @@ elif scelta == "Dashboard":
             ].copy()
 
             st.write(f"Anno in analisi: {anno_leader}")
+
+            # Definisci le date minime e massime se "Tutti" è selezionato
+            if anno_leader == "Tutti":
+                start_date_leader = df_leader_filtered['effective_start_date'].min()
+                end_date_leader = df_leader_filtered['effective_start_date'].max()
 
             leaderboard_df = calcola_leaderboard_mensile(df_leader_comp, start_date_leader, end_date_leader)
             if leaderboard_df.empty:
@@ -1088,16 +1080,13 @@ elif scelta == "Dashboard":
             if veloce.empty:
                 st.info("Nessun progetto completato una tantum per calcolare la velocità.")
             else:
-                fig2 = px.bar(
-                    veloce,
-                    x='sales_recruiter',
-                    y='tempo_totale',
-                    labels={'tempo_totale': 'Tempo Medio (giorni)', 'sales_recruiter': 'Recruiter'},
-                    title='Tempo Medio di Chiusura per Recruiter (Più basso = più veloce)',
-                    color='tempo_totale',
-                    color_continuous_scale='Blues'
-                )
-                st.plotly_chart(fig2, use_container_width=True)
+                fig2, ax2 = plt.subplots(figsize=(8,6))
+                ax2.bar(veloce['sales_recruiter'], veloce['tempo_totale'], color='#636EFA')  # Colore simile al grafico avvicinamento
+                ax2.set_title("Tempo Medio (giorni) - Più basso = più veloce")
+                ax2.set_xlabel("Recruiter")
+                ax2.set_ylabel("Tempo Medio (giorni)")
+                plt.xticks(rotation=45, ha='right')
+                st.pyplot(fig2)
 
             # **3) Recruiter con più Bonus ottenuti** (4 stelle=300, 5 stelle=500)
             st.markdown("**3) Recruiter con più Bonus ottenuti** (4 stelle=300, 5 stelle=500)")
@@ -1109,16 +1098,13 @@ elif scelta == "Dashboard":
                 if bonus_df.empty:
                     st.info("Nessun bonus calcolato.")
                 else:
-                    fig3 = px.bar(
-                        bonus_df,
-                        x='sales_recruiter',
-                        y='bonus',
-                        labels={'bonus': 'Bonus (€)', 'sales_recruiter': 'Recruiter'},
-                        title='Bonus Totale Ottenuto per Recruiter',
-                        color='bonus',
-                        color_continuous_scale='Reds'
-                    )
-                    st.plotly_chart(fig3, use_container_width=True)
+                    fig3, ax3 = plt.subplots(figsize=(8,6))
+                    ax3.bar(bonus_df['sales_recruiter'], bonus_df['bonus'], color='#EF553B')  # Colore simile al grafico avvicinamento
+                    ax3.set_title("Bonus Totale Ottenuto")
+                    ax3.set_xlabel("Recruiter")
+                    ax3.set_ylabel("Bonus (€)")
+                    plt.xticks(rotation=45, ha='right')
+                    st.pyplot(fig3)
             else:
                 st.warning("'recensione_stelle' non è presente nei dati filtrati.")
 
