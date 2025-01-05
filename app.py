@@ -627,8 +627,13 @@ elif scelta == "Dashboard":
                     st.plotly_chart(fig_sett, use_container_width=True)
 
                     st.subheader("Progetti Attivi (In corso + Bloccato)")
-                    df_attivi = df_filtered[df_filtered['stato_progetto'].isin(["In corso", "Bloccato"])]
+                    
+                    # **Modifica: Rimuovi il filtro 'stato_progetto' per includere tutti i progetti attivi**
+                    df_attivi = df_filtered.copy()
+                    
+                    # Conta i progetti attivi per recruiter
                     attivi_count = df_attivi.groupby('sales_recruiter').size().reset_index(name='Progetti Attivi')
+                    
                     fig_attivi = px.bar(
                         attivi_count,
                         x='sales_recruiter',
