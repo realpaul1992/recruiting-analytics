@@ -1018,6 +1018,7 @@ elif scelta == "Dashboard":
                     (df['effective_start_date'] <= pd.Timestamp(end_date_leader))
                 ]
             else:
+                # Usa tutti i dati
                 df_leader_filtered = df.copy()
 
             # Filtra solo i progetti completati e una tantum
@@ -1028,7 +1029,12 @@ elif scelta == "Dashboard":
 
             st.write(f"Anno in analisi: {anno_leader}")
 
-            leaderboard_df = calcola_leaderboard_mensile(df_leader_comp, start_date_leader if anno_leader != "Tutti" else df_leader_filtered['effective_start_date'].min(), end_date_leader if anno_leader != "Tutti" else df_leader_filtered['effective_start_date'].max())
+            # Definisci le date minime e massime se "Tutti" è selezionato
+            if anno_leader == "Tutti":
+                start_date_leader = df_leader_filtered['effective_start_date'].min()
+                end_date_leader = df_leader_filtered['effective_start_date'].max()
+
+            leaderboard_df = calcola_leaderboard_mensile(df_leader_comp, start_date_leader, end_date_leader)
             if leaderboard_df.empty:
                 st.info("Nessun progetto completato una tantum in questo periodo.")
             else:
@@ -1105,13 +1111,13 @@ elif scelta == "Dashboard":
             else:
                 st.warning("'recensione_stelle' non è presente nei dati filtrati.")
 
-    #######################################
-    # 3. GESTISCI OPZIONI
-    #######################################
-    elif scelta == "Gestisci Opzioni":
-        st.write("Gestione settori, PM, recruiters e capacity in manage_options.py")
-        st.markdown("### Nota")
-        st.markdown("""
-        La gestione delle opzioni (settori, Project Managers, Recruiters e Capacità) è gestita nel file `manage_options.py`.
-        Assicurati di navigare a quella pagina per gestire le tue opzioni.
-        """)
+#######################################
+# 3. GESTISCI OPZIONI
+#######################################
+elif scelta == "Gestisci Opzioni":
+    st.write("Gestione settori, PM, recruiters e capacity in manage_options.py")
+    st.markdown("### Nota")
+    st.markdown("""
+    La gestione delle opzioni (settori, Project Managers, Recruiters e Capacità) è gestita nel file `manage_options.py`.
+    Assicurati di navigare a quella pagina per gestire le tue opzioni.
+    """)
