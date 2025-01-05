@@ -963,11 +963,6 @@ elif scelta == "Dashboard":
                             st.info("Nessun recruiter ha venditori andati via in questo intervallo.")
 
         ################################
-        # TAB 5: Retention  # NUOVO
-        ################################
-        # La scheda Retention è già stata aggiunta sopra come tab5
-
-        ################################
         # TAB 6: Classifica
         ################################
         with tab6:
