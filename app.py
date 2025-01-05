@@ -1359,13 +1359,13 @@ elif scelta == "Dashboard":
                     )
                     st.plotly_chart(fig_conversion, use_container_width=True)
 
-    #######################################
-    # 3. GESTISCI OPZIONI
-    #######################################
-    elif scelta == "Gestisci Opzioni":
-        st.write("Gestione settori, PM, recruiters e capacity in manage_options.py")
-        st.markdown("### Nota")
-        st.markdown("""
-        La gestione delle opzioni (settori, Project Managers, Recruiters e Capacità) è gestita nel file `manage_options.py`.
-        Assicurati di navigare a quella pagina per gestire le tue opzioni.
-        """)
+#######################################
+# 3. GESTISCI OPZIONI
+#######################################
+elif scelta == "Gestisci Opzioni":
+    st.write("Gestione settori, PM, recruiters e capacity in manage_options.py")
+    st.markdown("### Nota")
+    st.markdown("""
+    La gestione delle opzioni (settori, Project Managers, Recruiters e Capacità) è gestita nel file `manage_options.py`.
+    Assicurati di navigare a quella pagina per gestire le tue opzioni.
+    """)
