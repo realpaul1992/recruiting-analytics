@@ -571,9 +571,13 @@ elif scelta == "Dashboard":
                     st.error(f"Errore nella selezione di Anno: {e}")
                     st.stop()
 
+                # **Modifica della Logica di Filtraggio per Includere Progetti Attivi durante l'Anno Selezionato**
                 df_filtered = df[
-                    (df['effective_start_date'] >= pd.Timestamp(start_date)) &
-                    (df['effective_start_date'] <= pd.Timestamp(end_date))
+                    (df['effective_start_date'] <= pd.Timestamp(end_date)) & 
+                    (
+                        (df['data_fine_dt'] >= pd.Timestamp(start_date)) |
+                        (df['data_fine_dt'].isna())
+                    )
                 ]
             else:
                 # Usa tutti i dati
