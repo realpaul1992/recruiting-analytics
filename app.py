@@ -361,6 +361,139 @@ def calcola_leaderboard_mensile(df, start_date, end_date):
     return leaderboard
 
 #######################################
+# FUNZIONI PER GESTIONE CANDIDATI  # NUOVO
+#######################################
+
+def carica_candidati_completo():
+    """
+    Carica tutti i candidati dal database.
+    """
+    conn = get_connection()
+    c = conn.cursor()
+    query = """
+        SELECT
+            c.id,
+            c.progetto_id,
+            c.recruiter_id,
+            c.candidato_nome,
+            c.data_inserimento,
+            c.data_dimissioni,
+            c.data_placement
+        FROM candidati c
+    """
+    c.execute(query)
+    rows = c.fetchall()
+    columns = ['id','progetto_id','recruiter_id','candidato_nome','data_inserimento','data_dimissioni','data_placement']
+    conn.close()
+    df = pd.DataFrame(rows, columns=columns)
+    
+    # Convertiamo le date
+    df['data_inserimento_dt'] = pd.to_datetime(df['data_inserimento'], errors='coerce')
+    df['data_dimissioni_dt'] = pd.to_datetime(df['data_dimissioni'], errors='coerce')
+    df['data_placement_dt'] = pd.to_datetime(df['data_placement'], errors='coerce')
+    
+    # Calcoliamo la durata in giorni se 'data_dimissioni' è presente
+    df['durata_giorni'] = (df['data_dimissioni_dt'] - df['data_inserimento_dt']).dt.days
+    
+    return df
+
+def calcola_durata_media(df_candidati):
+    """
+    Calcola la durata media dei venditori per progetto.
+    """
+    df_valid = df_candidati.dropna(subset=['durata_giorni'])
+    if df_valid.empty:
+        return pd.DataFrame()
+    durata_media = df_valid.groupby(['recruiter_id', 'progetto_id'])['durata_giorni'].mean().reset_index()
+    return durata_media
+
+def conta_dimissioni_per_recruiter(df_candidati):
+    """
+    Conta quante volte un venditore è stato inserito e ha lasciato un progetto per recruiter.
+    """
+    inserimenti = df_candidati.groupby('recruiter_id').size().reset_index(name='inserimenti')
+    dimissioni = df_candidati.dropna(subset=['data_dimissioni_dt']).groupby('recruiter_id').size().reset_index(name='dimissioni')
+    conta = inserimenti.merge(dimissioni, on='recruiter_id', how='left').fillna(0)
+    conta['dimissioni'] = conta['dimissioni'].astype(int)
+    return conta
+
+def recruiter_piu_dimissioni(df_candidati):
+    """
+    Trova il recruiter con il maggior numero di venditori che hanno lasciato i progetti.
+    """
+    dimissioni = df_candidati.dropna(subset=['data_dimissioni_dt'])
+    if dimissioni.empty:
+        return None
+    recruiter_count = dimissioni.groupby('recruiter_id').size().reset_index(name='dimissioni')
+    max_dimissioni = recruiter_count['dimissioni'].max()
+    top_recruiters = recruiter_count[recruiter_count['dimissioni'] == max_dimissioni]
+    return top_recruiters
+
+#######################################
+# GESTIONE RETENTION  # NUOVO
+#######################################
+
+def calcola_leaderboard_mensile(df, start_date, end_date):
+    df_temp = df.copy()
+    df_temp['recensione_stelle'] = df_temp['recensione_stelle'].fillna(0).astype(int)
+
+    # bonus da recensioni
+    def bonus_stelle(stelle):
+        if stelle == 4:
+            return 300
+        elif stelle == 5:
+            return 500
+        return 0
+    
+    df_temp['bonus'] = df_temp['recensione_stelle'].apply(bonus_stelle)
+
+    # Filtra solo i progetti completati e una tantum
+    mask = (
+        (df_temp['stato_progetto'] == 'Completato') &
+        (df_temp['effective_start_date'] >= pd.Timestamp(start_date)) &
+        (df_temp['effective_start_date'] <= pd.Timestamp(end_date)) &
+        (df_temp['start_date_dt'].isna())  # Escludi progetti continuativi
+    )
+    df_filtro = df_temp[mask].copy()
+
+    if df_filtro.empty:
+        return pd.DataFrame([], columns=[
+            'sales_recruiter','completati','tempo_medio','bonus_totale','punteggio','badge'
+        ])
+
+    group = df_filtro.groupby('sales_recruiter')
+    completati = group.size().reset_index(name='completati')
+    tempo_medio = group['tempo_totale'].mean().reset_index(name='tempo_medio')
+    bonus_sum = group['bonus'].sum().reset_index(name='bonus_totale')
+
+    leaderboard = (
+        completati
+        .merge(tempo_medio, on='sales_recruiter', how='left')
+        .merge(bonus_sum, on='sales_recruiter', how='left')
+    )
+
+    leaderboard['tempo_medio'] = leaderboard['tempo_medio'].fillna(0)
+    leaderboard['bonus_totale'] = leaderboard['bonus_totale'].fillna(0)
+    leaderboard['punteggio'] = (
+        leaderboard['completati'] * 10
+        + leaderboard['bonus_totale']
+        + leaderboard['tempo_medio'].apply(lambda x: max(0, 30 - x))
+    )
+
+    def assegna_badge(n):
+        if n >= 20:
+            return "Gold"
+        elif n >= 10:
+            return "Silver"
+        elif n >= 5:
+            return "Bronze"
+        return ""
+    
+    leaderboard['badge'] = leaderboard['completati'].apply(assegna_badge)
+    leaderboard = leaderboard.sort_values('punteggio', ascending=False)
+    return leaderboard
+
+#######################################
 # UTILITIES PER FORMATTARE LE DATE
 #######################################
 def format_date_display(x):
@@ -391,6 +524,7 @@ rec_db = carica_recruiters()
 
 st.title("Gestione Progetti di Recruiting")
 st.sidebar.title("Navigazione")
+# Aggiorna la lista delle tab includendo "Retention"
 scelta = st.sidebar.radio("Vai a", ["Inserisci Dati", "Dashboard", "Gestisci Opzioni"])
 
 #######################################
@@ -459,15 +593,19 @@ elif scelta == "Dashboard":
     st.header("Dashboard di Controllo")
     df = carica_dati_completo()
     
+    # Carica dati candidati per la scheda Retention
+    df_candidati = carica_candidati_completo()
+    
     if df.empty:
         st.info("Nessun progetto disponibile nel DB.")
     else:
-        # Creiamo le Tab
-        tab1, tab2, tab3, tab4, tab6 = st.tabs([
+        # Creiamo le Tab, includendo "Retention"
+        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
             "Panoramica",
             "Carico Proiettato / Previsione",
             "Bonus e Premi",
             "Backup",
+            "Retention",  # Nuova scheda Retention
             "Classifica"
         ])
 
@@ -503,392 +641,522 @@ elif scelta == "Dashboard":
             if df_filtered.empty:
                 st.info("Nessun dato disponibile per l'anno selezionato.")
             else:
-                # Tempo Medio Globale (Solo Progetti Una Tantum)
+                # Filtra solo i progetti completati e una tantum
                 df_comp = df_filtered[
                     (df_filtered['stato_progetto'] == 'Completato') &
                     (df_filtered['start_date_dt'].isna())  # Escludi progetti continuativi
                 ]
-                tempo_medio_globale = df_comp['tempo_totale'].dropna().mean() or 0
-                st.metric("Tempo Medio Globale (giorni)", round(tempo_medio_globale,2))
-
-                # Tempo medio per recruiter (Solo Progetti Una Tantum)
-                rec_media = df_comp.groupby('sales_recruiter')['tempo_totale'].mean().reset_index(name='tempo_medio')
-                rec_media['tempo_medio'] = rec_media['tempo_medio'].fillna(0).round(2)
-                fig_rec = px.bar(
-                    rec_media,
-                    x='sales_recruiter',
-                    y='tempo_medio',
-                    labels={'tempo_medio':'Giorni Medi'},
-                    title='Tempo Medio di Chiusura per Recruiter (Progetti Una Tantum)',
-                    color='tempo_medio',  # Aggiunta di colore per stile
-                    color_continuous_scale='Blues'
-                )
-                st.plotly_chart(fig_rec, use_container_width=True)
-
-                # Tempo medio per settore (Solo Progetti Una Tantum)
-                sett_media = df_comp.groupby('settore')['tempo_totale'].mean().reset_index(name='tempo_medio')
-                sett_media['tempo_medio'] = sett_media['tempo_medio'].fillna(0).round(2)
-                fig_sett = px.bar(
-                    sett_media,
-                    x='settore',
-                    y='tempo_medio',
-                    labels={'tempo_medio':'Giorni Medi'},
-                    title='Tempo Medio di Chiusura per Settore (Progetti Una Tantum)',
-                    color='tempo_medio',
-                    color_continuous_scale='Blues'
-                )
-                st.plotly_chart(fig_sett, use_container_width=True)
-
-                st.subheader("Progetti Attivi (In corso + Bloccato)")
-                df_attivi = df_filtered[df_filtered['stato_progetto'].isin(["In corso", "Bloccato"])]
-                attivi_count = df_attivi.groupby('sales_recruiter').size().reset_index(name='Progetti Attivi')
-                fig_attivi = px.bar(
-                    attivi_count,
-                    x='sales_recruiter',
-                    y='Progetti Attivi',
-                    title='Numero di Progetti Attivi per Recruiter',
-                    color='Progetti Attivi',
-                    color_continuous_scale='Oranges'
-                )
-                st.plotly_chart(fig_attivi, use_container_width=True)
-
-                st.subheader("Capacità di Carico e Over Capacity")
-                df_capacity = carica_recruiters_capacity()
-                recruiters_unici = df['sales_recruiter'].unique()
-                cap_df = pd.DataFrame({'sales_recruiter': recruiters_unici})
-                cap_df = cap_df.merge(attivi_count, on='sales_recruiter', how='left').fillna(0)
-                cap_df = cap_df.merge(df_capacity, on='sales_recruiter', how='left').fillna(5)
-                cap_df['capacity'] = cap_df['capacity'].astype(int)
-                cap_df['Progetti Attivi'] = cap_df['Progetti Attivi'].astype(int)
-                cap_df['Capacità Disponibile'] = cap_df['capacity'] - cap_df['Progetti Attivi']
-                cap_df.loc[cap_df['Capacità Disponibile'] < 0, 'Capacità Disponibile'] = 0
-
-                overcap = cap_df[cap_df['Capacità Disponibile'] == 0]
-                if not overcap.empty:
-                    st.warning("Attenzione! I seguenti Recruiter sono a capacità 0:")
-                    st.write(overcap[['sales_recruiter','Progetti Attivi','capacity','Capacità Disponibile']])
-
-                fig_carico = px.bar(
-                    cap_df,
-                    x='sales_recruiter',
-                    y=['Progetti Attivi','Capacità Disponibile'],
-                    barmode='group',
-                    title='Capacità di Carico per Recruiter',
-                    color_discrete_sequence=['#636EFA', '#EF553B']  # Colori simili al grafico avvicinamento
-                )
-                st.plotly_chart(fig_carico, use_container_width=True)
-
-        ################################
-        # TAB 2: Carico Proiettato / Previsione
-        ################################
-        with tab2:
-            st.subheader("Progetti che si chiuderanno nei prossimi giorni/settimane")
-            st.write("""
-                Escludiamo i progetti che hanno tempo_previsto=0 (non impostato).
-                Calcoliamo la data di fine calcolata = effective_start_date + tempo_previsto (giorni) per i progetti continuativi.
-                Per i progetti una tantum, calcoliamo fine_calcolata = oggi + tempo_previsto.
-            """)
-
-            # Utilizza 'effective_start_date' invece di solo 'data_inizio'
-            df_ok = df[(df['tempo_previsto'].notna()) & (df['tempo_previsto'] > 0)]
-
-            # Calcola 'fine_calcolata' differenziando tra progetti continuativi e una tantum
-            # Per progetti continuativi: effective_start_date + tempo_previsto
-            # Per progetti una tantum: today + tempo_previsto
-            today = datetime.today()
-            df_ok['fine_calcolata'] = df_ok.apply(
-                lambda row: row['effective_start_date'] + pd.to_timedelta(row['tempo_previsto'], unit='D') 
-                if pd.notna(row['start_date_dt']) else today + pd.to_timedelta(row['tempo_previsto'], unit='D'),
-                axis=1
-            )
-
-            # Filtra i progetti in corso
-            df_incorso = df_ok[df_ok['stato_progetto'] == 'In corso'].copy()
-
-            st.subheader("Mostriamo i Progetti In Corso con tempo_previsto > 0")
-            st.dataframe(df_incorso[['cliente','stato_progetto','effective_start_date','tempo_previsto','fine_calcolata','sales_recruiter']])
-
-            st.write("**Vuoi vedere quali progetti si chiuderanno entro X giorni da oggi?**")
-            orizzonte_giorni = st.number_input("Seleziona i giorni di orizzonte", value=14, min_value=1)
-            today_plus_orizzonte = today + timedelta(days=orizzonte_giorni)
-            df_prossimi = df_incorso[df_incorso['fine_calcolata'] <= today_plus_orizzonte]
-            if not df_prossimi.empty:
-                st.info(f"Progetti in corso che si chiuderanno entro {orizzonte_giorni} giorni:")
-                st.dataframe(df_prossimi[['cliente','sales_recruiter','fine_calcolata']])
-                
-                st.subheader("Recruiter che si libereranno in questo orizzonte")
-                closings = df_prossimi.groupby('sales_recruiter').size().reset_index(name='progetti_che_chiudono')
-                df_capacity = carica_recruiters_capacity()
-                df_attivi = df[df['stato_progetto'].isin(["In corso","Bloccato"])]
-                attivi_count = df_attivi.groupby('sales_recruiter').size().reset_index(name='Progetti Attivi')
-
-                rec_df = df_capacity.merge(attivi_count, on='sales_recruiter', how='left').fillna(0)
-                rec_df['Progetti Attivi'] = rec_df['Progetti Attivi'].astype(int)
-                rec_df = rec_df.merge(closings, on='sales_recruiter', how='left').fillna(0)
-                rec_df['progetti_che_chiudono'] = rec_df['progetti_che_chiudono'].astype(int)
-
-                rec_df['Nuovi Attivi'] = rec_df['Progetti Attivi'] - rec_df['progetti_che_chiudono']
-                rec_df.loc[rec_df['Nuovi Attivi'] < 0, 'Nuovi Attivi'] = 0
-                rec_df['Capacità Disponibile'] = rec_df['capacity'] - rec_df['Nuovi Attivi']
-                rec_df.loc[rec_df['Capacità Disponibile'] < 0, 'Capacità Disponibile'] = 0
-
-                st.dataframe(rec_df[['sales_recruiter','capacity','Progetti Attivi','progetti_che_chiudono','Nuovi Attivi','Capacità Disponibile']])
-                st.write("""
-                    Da questa tabella vedi quanti progetti chiudono per ogni recruiter 
-                    entro l'orizzonte selezionato, 
-                    e di conseguenza la nuova 'Capacità Disponibile' calcolata.
-                """)
-            else:
-                st.info("Nessun progetto in corso si chiuderà in questo orizzonte.")
-
-        ################################
-        # TAB 3: Bonus e Premi
-        ################################
-        with tab3:
-            st.subheader("Bonus e Premi")
-            st.write("""
-                Esempio: 4 stelle => 300€, 5 stelle => 500€.
-            """)
-            st.markdown("### Filtro per Anno")
-            anni_disponibili_bonus = sorted(df['recensione_data_dt'].dt.year.dropna().unique())
-            if len(anni_disponibili_bonus) == 0:
-                st.warning("Nessun dato disponibile per il filtro dei bonus.")
-                st.stop()
-            # Converti gli anni in interi
-            anni_disponibili_bonus = [int(y) for y in anni_disponibili_bonus]
-            anno_bonus = st.selectbox("Seleziona Anno", options=anni_disponibili_bonus, index=len(anni_disponibili_bonus)-1, key='bonus_anno')
-            
-            # Filtra i dati in base all'anno selezionato
-            try:
-                start_date_bonus = datetime(anno_bonus, 1, 1)
-                end_date_bonus = datetime(anno_bonus, 12, 31)
-            except TypeError as e:
-                st.error(f"Errore nella selezione di Anno per i bonus: {e}")
-                st.stop()
-
-            # Calcola il bonus totale per ogni recruiter
-            df_bonus_totale = df[
-                (df['recensione_data_dt'] >= pd.Timestamp(start_date_bonus)) & 
-                (df['recensione_data_dt'] <= pd.Timestamp(end_date_bonus))
-            ].copy()
-            df_bonus_totale['bonus'] = df_bonus_totale['recensione_stelle'].fillna(0).astype(int).apply(calcola_bonus)
-            bonus_rec = df_bonus_totale.groupby('sales_recruiter')['bonus'].sum().reset_index()
-
-            # Calcola il bonus totale per ogni recruiter
-            df_bonus_totale = df_bonus_totale.groupby('sales_recruiter')['bonus'].sum().reset_index(name='bonus_totale')
-
-            # Calcola la percentuale verso il 1000€
-            df_bonus_totale['percentuale'] = (df_bonus_totale['bonus_totale'] / 1000) * 100
-            df_bonus_totale['percentuale'] = df_bonus_totale['percentuale'].apply(lambda x: min(x, 100))  # Limita al 100%
-
-            # Ordina per percentuale
-            df_bonus_totale = df_bonus_totale.sort_values(by='percentuale', ascending=False)
-
-            st.write(f"Progetti con recensione in questo anno: {len(df_bonus_totale)}")
-
-            # **Nuovo Grafico: Avvicinamento al Premio Annuale di 1000€**
-            st.markdown("### Avvicinamento al Premio Annuale di 1000€")
-            fig_premio = px.bar(
-                df_bonus_totale,
-                y='sales_recruiter',
-                x='percentuale',
-                orientation='h',
-                labels={'percentuale': 'Percentuale verso 1000€', 'sales_recruiter': 'Recruiter'},
-                title='Avvicinamento al Premio Annuale di 1000€',
-                text=df_bonus_totale['percentuale'].apply(lambda x: f"{x:.1f}%")
-            )
-
-            # Aggiungi una linea verticale al 100%
-            fig_premio.add_shape(
-                type="line",
-                x0=100,
-                y0=-0.5,
-                x1=100,
-                y1=len(df_bonus_totale),
-                line=dict(color="Red", dash="dash"),
-            )
-
-            # Aggiorna layout per migliorare la leggibilità
-            fig_premio.update_layout(
-                yaxis=dict(categoryorder='total ascending'),
-                xaxis=dict(range=[0, 110]),
-                showlegend=False,
-                margin=dict(l=100, r=50, t=50, b=50)
-            )
-
-            fig_premio.update_traces(marker_color='skyblue')
-
-            st.plotly_chart(fig_premio, use_container_width=True, key='premio_annual_chart')  # Chiave unica
-
-            # **Aggiornamento del Testo per "Premio Annuale (Recensioni a 5 stelle)"**
-            st.subheader("Premio Annuale (Recensioni a 5 stelle)")
-            # Rimosso il testo statico con il placeholder
-
-            # **Nuova Implementazione: Premiazione Basata sulle Recensioni a 5 Stelle**
-            # Contare il numero di recensioni a 5 stelle per ogni recruiter
-            df_reviews_5 = df[
-                (df['recensione_stelle'] == 5) &
-                (df['recensione_data_dt'] >= pd.Timestamp(start_date_bonus)) &
-                (df['recensione_data_dt'] <= pd.Timestamp(end_date_bonus))
-            ]
-
-            if not df_reviews_5.empty:
-                count_reviews = df_reviews_5.groupby('sales_recruiter').size().reset_index(name='recensioni_5_stelle')
-                max_reviews = count_reviews['recensioni_5_stelle'].max()
-                top_recruiters = count_reviews[count_reviews['recensioni_5_stelle'] == max_reviews]
-
-                if len(top_recruiters) == 1:
-                    st.success(f"Il premio annuale va a {top_recruiters.iloc[0]['sales_recruiter']} con {top_recruiters.iloc[0]['recensioni_5_stelle']} recensioni a 5 stelle!")
+                if df_comp.empty:
+                    st.info("Nessun progetto una tantum completato nell'anno selezionato.")
                 else:
-                    st.success(f"Premio annuale condiviso tra: {', '.join(top_recruiters['sales_recruiter'])}, ciascuno con {max_reviews} recensioni a 5 stelle!")
-            else:
-                st.info("Nessun recruiter ha ricevuto recensioni a 5 stelle quest'anno.")
+                    # Tempo Medio Globale (Solo Progetti Una Tantum)
+                    tempo_medio_globale = df_comp['tempo_totale'].dropna().mean() or 0
+                    st.metric("Tempo Medio Globale (giorni)", round(tempo_medio_globale,2))
 
-        ################################
-        # TAB 4: Backup
-        ################################
-        with tab4:
-            st.subheader("Gestione Backup (Esportazione e Ripristino)")
-            
-            st.markdown("### Esporta Dati in ZIP")
-            if st.button("Esegui Backup Ora", key='backup_now'):
-                with st.spinner("Eseguendo il backup..."):
-                    backup_database()
-
-            backup_zip_path = os.path.join('backup', 'backup.zip')
-            if os.path.exists(backup_zip_path):
-                with open(backup_zip_path, 'rb') as f:
-                    st.download_button(
-                        label="Scarica Backup ZIP",
-                        data=f,
-                        file_name="backup.zip",
-                        mime='application/zip'
+                    # Tempo medio per recruiter (Solo Progetti Una Tantum)
+                    rec_media = df_comp.groupby('sales_recruiter')['tempo_totale'].mean().reset_index(name='tempo_medio')
+                    rec_media['tempo_medio'] = rec_media['tempo_medio'].fillna(0).round(2)
+                    fig_rec = px.bar(
+                        rec_media,
+                        x='sales_recruiter',
+                        y='tempo_medio',
+                        labels={'tempo_medio':'Giorni Medi'},
+                        title='Tempo Medio di Chiusura per Recruiter (Progetti Una Tantum)',
+                        color='tempo_medio',  # Aggiunta di colore per stile
+                        color_continuous_scale='Blues'
                     )
-            else:
-                st.info("Nessun file ZIP di backup presente.")
-            
-            st.markdown("---")
-            st.markdown("### Ripristina Dati da ZIP")
-            uploaded_zip = st.file_uploader("Carica l'archivio ZIP di backup", type=['zip'], key='upload_zip')
-            if uploaded_zip is not None:
-                if st.button("Ripristina DB da ZIP", key='restore_db'):
-                    with st.spinner("Ripristinando il database..."):
-                        restore_from_zip(uploaded_zip)
+                    st.plotly_chart(fig_rec, use_container_width=True)
 
-        ################################
-        # TAB 5: Classifica
-        ################################
-        with tab6:
-            st.subheader("Classifica (Matplotlib)")
+                    # Tempo medio per settore (Solo Progetti Una Tantum)
+                    sett_media = df_comp.groupby('settore')['tempo_totale'].mean().reset_index(name='tempo_medio')
+                    sett_media['tempo_medio'] = sett_media['tempo_medio'].fillna(0).round(2)
+                    fig_sett = px.bar(
+                        sett_media,
+                        x='settore',
+                        y='tempo_medio',
+                        labels={'tempo_medio':'Giorni Medi'},
+                        title='Tempo Medio di Chiusura per Settore (Progetti Una Tantum)',
+                        color='tempo_medio',
+                        color_continuous_scale='Blues'
+                    )
+                    st.plotly_chart(fig_sett, use_container_width=True)
 
-            st.markdown("### Filtro per Anno")
-            anni_leader = sorted(df['effective_start_date'].dt.year.dropna().unique())
-            if len(anni_leader) == 0:
-                st.warning("Nessun dato disponibile per il leaderboard.")
-                st.stop()
-            # Converti gli anni in interi
-            anni_leader = [int(y) for y in anni_leader]
-            anno_leader = st.selectbox("Seleziona Anno", options=anni_leader, index=len(anni_leader)-1, key='leaderboard_anno')
+                    st.subheader("Progetti Attivi (In corso + Bloccato)")
+                    df_attivi = df_filtered[df_filtered['stato_progetto'].isin(["In corso", "Bloccato"])]
+                    attivi_count = df_attivi.groupby('sales_recruiter').size().reset_index(name='Progetti Attivi')
+                    fig_attivi = px.bar(
+                        attivi_count,
+                        x='sales_recruiter',
+                        y='Progetti Attivi',
+                        title='Numero di Progetti Attivi per Recruiter',
+                        color='Progetti Attivi',
+                        color_continuous_scale='Oranges'
+                    )
+                    st.plotly_chart(fig_attivi, use_container_width=True)
 
-            # Filtra i dati per il leaderboard basato sull'anno selezionato
-            try:
-                start_date_leader = datetime(anno_leader, 1, 1)
-                end_date_leader = datetime(anno_leader, 12, 31)
-            except TypeError as e:
-                st.error(f"Errore nella selezione di Anno per il leaderboard: {e}")
-                st.stop()
+                    st.subheader("Capacità di Carico e Over Capacity")
+                    df_capacity = carica_recruiters_capacity()
+                    recruiters_unici = df['sales_recruiter'].unique()
+                    cap_df = pd.DataFrame({'sales_recruiter': recruiters_unici})
+                    cap_df = cap_df.merge(attivi_count, on='sales_recruiter', how='left').fillna(0)
+                    cap_df = cap_df.merge(df_capacity, on='sales_recruiter', how='left').fillna(5)
+                    cap_df['capacity'] = cap_df['capacity'].astype(int)
+                    cap_df['Progetti Attivi'] = cap_df['Progetti Attivi'].astype(int)
+                    cap_df['Capacità Disponibile'] = cap_df['capacity'] - cap_df['Progetti Attivi']
+                    cap_df.loc[cap_df['Capacità Disponibile'] < 0, 'Capacità Disponibile'] = 0
 
-            df_leader_filtered = df[
-                (df['effective_start_date'] >= pd.Timestamp(start_date_leader)) &
-                (df['effective_start_date'] <= pd.Timestamp(end_date_leader))
-            ]
+                    overcap = cap_df[cap_df['Capacità Disponibile'] == 0]
+                    if not overcap.empty:
+                        st.warning("Attenzione! I seguenti Recruiter sono a capacità 0:")
+                        st.write(overcap[['sales_recruiter','Progetti Attivi','capacity','Capacità Disponibile']])
 
-            st.write(f"Anno in analisi: {anno_leader}")
+                    fig_carico = px.bar(
+                        cap_df,
+                        x='sales_recruiter',
+                        y=['Progetti Attivi','Capacità Disponibile'],
+                        barmode='group',
+                        title='Capacità di Carico per Recruiter',
+                        color_discrete_sequence=['#636EFA', '#EF553B']  # Colori simili al grafico avvicinamento
+                    )
+                    st.plotly_chart(fig_carico, use_container_width=True)
 
-            leaderboard_df = calcola_leaderboard_mensile(df_leader_filtered, start_date_leader, end_date_leader)
-            if leaderboard_df.empty:
-                st.info("Nessun progetto completato in questo periodo.")
-            else:
-                st.write("Classifica Annuale con punteggio e badge:")
-                st.dataframe(leaderboard_df)
+            ################################
+            # TAB 2: Carico Proiettato / Previsione
+            ################################
+            with tab2:
+                st.subheader("Progetti che si chiuderanno nei prossimi giorni/settimane")
+                st.write("""
+                    Escludiamo i progetti che hanno tempo_previsto=0 (non impostato).
+                    Calcoliamo la data di fine calcolata = effective_start_date + tempo_previsto (giorni) per i progetti continuativi.
+                    Per i progetti una tantum, calcoliamo fine_calcolata = oggi + tempo_previsto.
+                """)
 
-                fig_leader = px.bar(
-                    leaderboard_df,
-                    x='sales_recruiter',
-                    y='punteggio',
-                    color='badge',
-                    title='Leaderboard Annuale',
-                    color_discrete_map={
-                        "Gold": "gold",
-                        "Silver": "silver",
-                        "Bronze": "brown",
-                        "": "grey"  # Colore di default per badge vuoti
-                    }
+                # Filtra i progetti con tempo_previsto > 0
+                df_ok = df[(df['tempo_previsto'].notna()) & (df['tempo_previsto'] > 0)]
+
+                # Calcola 'fine_calcolata' differenziando tra progetti continuativi e una tantum
+                today = datetime.today()
+                df_ok['fine_calcolata'] = df_ok.apply(
+                    lambda row: row['effective_start_date'] + pd.to_timedelta(row['tempo_previsto'], unit='D') 
+                    if pd.notna(row['start_date_dt']) else today + pd.to_timedelta(row['tempo_previsto'], unit='D'),
+                    axis=1
                 )
-                st.plotly_chart(fig_leader, use_container_width=True)
 
-                st.markdown("""
-                **Formula Punteggio**  
-                - +10 punti ogni progetto completato  
-                - +bonus (300/500) da recensioni 4/5 stelle  
-                - +max(0, 30 - tempo_medio) per invertire la velocità  
-                """)
-                st.markdown("""
-                **Badge**  
-                - Bronze = almeno 5 completati  
-                - Silver = almeno 10  
-                - Gold   = almeno 20  
-                """)
+                # Filtra i progetti in corso
+                df_incorso = df_ok[df_ok['stato_progetto'] == 'In corso'].copy()
+
+                st.subheader("Mostriamo i Progetti In Corso con tempo_previsto > 0")
+                st.dataframe(df_incorso[['cliente','stato_progetto','effective_start_date','tempo_previsto','fine_calcolata','sales_recruiter']])
+
+                st.write("**Vuoi vedere quali progetti si chiuderanno entro X giorni da oggi?**")
+                orizzonte_giorni = st.number_input("Seleziona i giorni di orizzonte", value=14, min_value=1)
+                today_plus_orizzonte = today + timedelta(days=orizzonte_giorni)
+                df_prossimi = df_incorso[df_incorso['fine_calcolata'] <= today_plus_orizzonte]
+                if not df_prossimi.empty:
+                    st.info(f"Progetti in corso che si chiuderanno entro {orizzonte_giorni} giorni:")
+                    st.dataframe(df_prossimi[['cliente','sales_recruiter','fine_calcolata']])
+                    
+                    st.subheader("Recruiter che si libereranno in questo orizzonte")
+                    closings = df_prossimi.groupby('sales_recruiter').size().reset_index(name='progetti_che_chiudono')
+                    df_capacity = carica_recruiters_capacity()
+                    df_attivi = df[df['stato_progetto'].isin(["In corso","Bloccato"])]
+                    attivi_count = df_attivi.groupby('sales_recruiter').size().reset_index(name='Progetti Attivi')
+
+                    rec_df = df_capacity.merge(attivi_count, on='sales_recruiter', how='left').fillna(0)
+                    rec_df['Progetti Attivi'] = rec_df['Progetti Attivi'].astype(int)
+                    rec_df = rec_df.merge(closings, on='sales_recruiter', how='left').fillna(0)
+                    rec_df['progetti_che_chiudono'] = rec_df['progetti_che_chiudono'].astype(int)
+
+                    rec_df['Nuovi Attivi'] = rec_df['Progetti Attivi'] - rec_df['progetti_che_chiudono']
+                    rec_df.loc[rec_df['Nuovi Attivi'] < 0, 'Nuovi Attivi'] = 0
+                    rec_df['Capacità Disponibile'] = rec_df['capacity'] - rec_df['Nuovi Attivi']
+                    rec_df.loc[rec_df['Capacità Disponibile'] < 0, 'Capacità Disponibile'] = 0
+
+                    st.dataframe(rec_df[['sales_recruiter','capacity','Progetti Attivi','progetti_che_chiudono','Nuovi Attivi','Capacità Disponibile']])
+                    st.write("""
+                        Da questa tabella vedi quanti progetti chiudono per ogni recruiter 
+                        entro l'orizzonte selezionato, 
+                        e di conseguenza la nuova 'Capacità Disponibile' calcolata.
+                    """)
+                else:
+                    st.info("Nessun progetto in corso si chiuderà in questo orizzonte.")
 
             ################################
-            # Grafici nella Classifica
+            # TAB 3: Bonus e Premi
             ################################
-            st.subheader("Grafici della Classifica")
+            with tab3:
+                st.subheader("Bonus e Premi")
+                st.write("""
+                    Esempio: 4 stelle => 300€, 5 stelle => 500€.
+                """)
+                st.markdown("### Filtro per Anno")
+                anni_disponibili_bonus = sorted(df['recensione_data_dt'].dt.year.dropna().unique())
+                if len(anni_disponibili_bonus) == 0:
+                    st.warning("Nessun dato disponibile per il filtro dei bonus.")
+                    st.stop()
+                # Converti gli anni in interi
+                anni_disponibili_bonus = [int(y) for y in anni_disponibili_bonus]
+                anno_bonus = st.selectbox("Seleziona Anno", options=anni_disponibili_bonus, index=len(anni_disponibili_bonus)-1, key='bonus_anno')
+                
+                # Filtra i dati in base all'anno selezionato
+                try:
+                    start_date_bonus = datetime(anno_bonus, 1, 1)
+                    end_date_bonus = datetime(anno_bonus, 12, 31)
+                except TypeError as e:
+                    st.error(f"Errore nella selezione di Anno per i bonus: {e}")
+                    st.stop()
 
-            # **2) Recruiter più veloce (Tempo Medio)**
-            st.markdown("**2) Recruiter più veloce (Tempo Medio)**")
-            df_comp = df_leader_filtered[
-                (df_leader_filtered['stato_progetto'] == 'Completato') &
-                (df_leader_filtered['start_date_dt'].isna())  # Solo progetti una tantum
-            ].copy()
-            veloce = df_comp.groupby('sales_recruiter')['tempo_totale'].mean().reset_index()
-            veloce['tempo_totale'] = veloce['tempo_totale'].fillna(0)
-            veloce = veloce.sort_values(by='tempo_totale', ascending=True)
-            if veloce.empty:
-                st.info("Nessun progetto completato per calcolare la velocità.")
-            else:
-                fig2, ax2 = plt.subplots(figsize=(8,6))
-                ax2.bar(veloce['sales_recruiter'], veloce['tempo_totale'], color='#636EFA')  # Colore simile al grafico avvicinamento
-                ax2.set_title("Tempo Medio (giorni) - Più basso = più veloce")
-                ax2.set_xlabel("Recruiter")
-                ax2.set_ylabel("Tempo Medio (giorni)")
-                plt.xticks(rotation=45, ha='right')
-                st.pyplot(fig2)
+                # Calcola il bonus totale per ogni recruiter
+                df_bonus_totale = df[
+                    (df['recensione_data_dt'] >= pd.Timestamp(start_date_bonus)) & 
+                    (df['recensione_data_dt'] <= pd.Timestamp(end_date_bonus))
+                ].copy()
+                df_bonus_totale['bonus'] = df_bonus_totale['recensione_stelle'].fillna(0).astype(int).apply(calcola_bonus)
+                bonus_rec = df_bonus_totale.groupby('sales_recruiter')['bonus'].sum().reset_index()
 
-            # **3) Recruiter con più Bonus ottenuti** (4 stelle=300, 5 stelle=500)
-            st.markdown("**3) Recruiter con più Bonus ottenuti** (4 stelle=300, 5 stelle=500)")
-            df_bonus = df_leader_filtered.copy()
-            df_bonus['bonus'] = df_bonus['recensione_stelle'].apply(calcola_bonus)
-            bonus_df = df_bonus.groupby('sales_recruiter')['bonus'].sum().reset_index()
-            bonus_df = bonus_df.sort_values(by='bonus', ascending=False)
-            if bonus_df.empty:
-                st.info("Nessun bonus calcolato.")
-            else:
-                fig3, ax3 = plt.subplots(figsize=(8,6))
-                ax3.bar(bonus_df['sales_recruiter'], bonus_df['bonus'], color='#EF553B')  # Colore simile al grafico avvicinamento
-                ax3.set_title("Bonus Totale Ottenuto")
-                ax3.set_xlabel("Recruiter")
-                ax3.set_ylabel("Bonus (€)")
-                plt.xticks(rotation=45, ha='right')
-                st.pyplot(fig3)
+                # Calcola il bonus totale per ogni recruiter
+                df_bonus_totale = df_bonus_totale.groupby('sales_recruiter')['bonus'].sum().reset_index(name='bonus_totale')
 
-#######################################
-# 3. GESTISCI OPZIONI
-#######################################
-elif scelta == "Gestisci Opzioni":
-    st.write("Gestione settori, PM, recruiters e capacity in manage_options.py")
-    st.markdown("### Nota")
-    st.markdown("""
-    La gestione delle opzioni (settori, Project Managers, Recruiters e Capacità) è gestita nel file `manage_options.py`.
-    Assicurati di navigare a quella pagina per gestire le tue opzioni.
-    """)
+                # Calcola la percentuale verso il 1000€
+                df_bonus_totale['percentuale'] = (df_bonus_totale['bonus_totale'] / 1000) * 100
+                df_bonus_totale['percentuale'] = df_bonus_totale['percentuale'].apply(lambda x: min(x, 100))  # Limita al 100%
+
+                # Ordina per percentuale
+                df_bonus_totale = df_bonus_totale.sort_values(by='percentuale', ascending=False)
+
+                st.write(f"Progetti con recensione in questo anno: {len(df_bonus_totale)}")
+
+                # **Nuovo Grafico: Avvicinamento al Premio Annuale di 1000€**
+                st.markdown("### Avvicinamento al Premio Annuale di 1000€")
+                fig_premio = px.bar(
+                    df_bonus_totale,
+                    y='sales_recruiter',
+                    x='percentuale',
+                    orientation='h',
+                    labels={'percentuale': 'Percentuale verso 1000€', 'sales_recruiter': 'Recruiter'},
+                    title='Avvicinamento al Premio Annuale di 1000€',
+                    text=df_bonus_totale['percentuale'].apply(lambda x: f"{x:.1f}%")
+                )
+
+                # Aggiungi una linea verticale al 100%
+                fig_premio.add_shape(
+                    type="line",
+                    x0=100,
+                    y0=-0.5,
+                    x1=100,
+                    y1=len(df_bonus_totale),
+                    line=dict(color="Red", dash="dash"),
+                )
+
+                # Aggiorna layout per migliorare la leggibilità
+                fig_premio.update_layout(
+                    yaxis=dict(categoryorder='total ascending'),
+                    xaxis=dict(range=[0, 110]),
+                    showlegend=False,
+                    margin=dict(l=100, r=50, t=50, b=50)
+                )
+
+                fig_premio.update_traces(marker_color='skyblue')
+
+                st.plotly_chart(fig_premio, use_container_width=True, key='premio_annual_chart')  # Chiave unica
+
+                # **Aggiornamento del Testo per "Premio Annuale (Recensioni a 5 stelle)"**
+                st.subheader("Premio Annuale (Recensioni a 5 stelle)")
+                # Rimosso il testo statico con il placeholder
+
+                # **Nuova Implementazione: Premiazione Basata sulle Recensioni a 5 Stelle**
+                # Contare il numero di recensioni a 5 stelle per ogni recruiter
+                df_reviews_5 = df[
+                    (df['recensione_stelle'] == 5) &
+                    (df['recensione_data_dt'] >= pd.Timestamp(start_date_bonus)) &
+                    (df['recensione_data_dt'] <= pd.Timestamp(end_date_bonus))
+                ]
+
+                if not df_reviews_5.empty:
+                    count_reviews = df_reviews_5.groupby('sales_recruiter').size().reset_index(name='recensioni_5_stelle')
+                    max_reviews = count_reviews['recensioni_5_stelle'].max()
+                    top_recruiters = count_reviews[count_reviews['recensioni_5_stelle'] == max_reviews]
+
+                    if len(top_recruiters) == 1:
+                        st.success(f"Il premio annuale va a {top_recruiters.iloc[0]['sales_recruiter']} con {top_recruiters.iloc[0]['recensioni_5_stelle']} recensioni a 5 stelle!")
+                    else:
+                        st.success(f"Premio annuale condiviso tra: {', '.join(top_recruiters['sales_recruiter'])}, ciascuno con {max_reviews} recensioni a 5 stelle!")
+                else:
+                    st.info("Nessun recruiter ha ricevuto recensioni a 5 stelle quest'anno.")
+
+            ################################
+            # TAB 4: Backup
+            ################################
+            with tab4:
+                st.subheader("Gestione Backup (Esportazione e Ripristino)")
+                
+                st.markdown("### Esporta Dati in ZIP")
+                if st.button("Esegui Backup Ora", key='backup_now'):
+                    with st.spinner("Eseguendo il backup..."):
+                        backup_database()
+
+                backup_zip_path = os.path.join('backup', 'backup.zip')
+                if os.path.exists(backup_zip_path):
+                    with open(backup_zip_path, 'rb') as f:
+                        st.download_button(
+                            label="Scarica Backup ZIP",
+                            data=f,
+                            file_name="backup.zip",
+                            mime='application/zip'
+                        )
+                else:
+                    st.info("Nessun file ZIP di backup presente.")
+                
+                st.markdown("---")
+                st.markdown("### Ripristina Dati da ZIP")
+                uploaded_zip = st.file_uploader("Carica l'archivio ZIP di backup", type=['zip'], key='upload_zip')
+                if uploaded_zip is not None:
+                    if st.button("Ripristina DB da ZIP", key='restore_db'):
+                        with st.spinner("Ripristinando il database..."):
+                            restore_from_zip(uploaded_zip)
+
+            ################################
+            # TAB 5: Retention  # NUOVO
+            ################################
+            with tab5:
+                st.subheader("Analisi della Retention")
+
+                if df_candidati.empty:
+                    st.info("Nessun dato sui candidati disponibile.")
+                else:
+                    # Carica i dati dei project manager e dei recruiter
+                    df_recruiters = carica_recruiters()
+                    recruiters_dict = {row['id']: row['nome'] for row in df_recruiters}
+
+                    # Seleziona un intervallo di date per l'analisi
+                    st.markdown("### Filtro per Intervallo di Date")
+                    with st.form("form_retention_filter_dashboard"):
+                        start_date_retention = st.date_input("Data Inizio", value=datetime.today().date().replace(year=datetime.today().year -1))
+                        end_date_retention = st.date_input("Data Fine", value=datetime.today().date())
+                        submit_retention = st.form_submit_button("Calcola Retention")
+                    
+                    if submit_retention:
+                        if start_date_retention > end_date_retention:
+                            st.error("La Data Inizio non può essere successiva alla Data Fine.")
+                        else:
+                            # Filtra i candidati inseriti nell'intervallo
+                            df_filtered_retention = df_candidati[
+                                (df_candidati['data_inserimento_dt'] >= pd.Timestamp(start_date_retention)) &
+                                (df_candidati['data_inserimento_dt'] <= pd.Timestamp(end_date_retention))
+                            ]
+
+                            total_candidati = len(df_filtered_retention)
+                            total_dimissioni = df_filtered_retention['data_dimissioni_dt'].notna().sum()
+
+                            st.metric("Totale Candidati Inseriti", total_candidati)
+                            st.metric("Totale Dimissioni", total_dimissioni)
+
+                            # Durata Media dei Venditori per Progetto
+                            durata_media = calcola_durata_media(df_filtered_retention)
+                            if durata_media.empty:
+                                st.info("Nessun venditore ha lasciato un progetto in questo intervallo.")
+                            else:
+                                # Aggiungi nomi dei recruiter e progetti
+                                df_recruiters = carica_recruiters()
+                                recruiters_dict = {row['id']: row['nome'] for row in df_recruiters}
+
+                                # Carica i nomi dei progetti
+                                conn = get_connection()
+                                c = conn.cursor()
+                                c.execute("SELECT id, cliente FROM progetti")
+                                progetti = c.fetchall()
+                                progetti_dict = {row['id']: row['cliente'] for row in progetti}
+                                conn.close()
+
+                                durata_media['recruiter'] = durata_media['recruiter_id'].map(recruiters_dict)
+                                durata_media['progetto'] = durata_media['progetto_id'].map(progetti_dict)
+                                durata_media = durata_media.dropna(subset=['recruiter', 'progetto'])
+
+                                st.markdown("#### Durata Media dei Venditori per Progetto")
+                                st.dataframe(durata_media[['recruiter', 'progetto', 'durata_giorni']].rename(columns={
+                                    'recruiter': 'Recruiter',
+                                    'progetto': 'Progetto',
+                                    'durata_giorni': 'Durata Media (giorni)'
+                                }))
+
+                                # Grafico: Durata Media per Recruiter
+                                fig_durata = px.bar(
+                                    durata_media,
+                                    x='recruiter',
+                                    y='durata_giorni',
+                                    color='progetto',
+                                    labels={'recruiter': 'Recruiter', 'durata_giorni': 'Durata Media (giorni)', 'progetto': 'Progetto'},
+                                    title='Durata Media dei Venditori per Recruiter e Progetto'
+                                )
+                                st.plotly_chart(fig_durata, use_container_width=True)
+
+                            # Numero di Inserimenti e Dimissioni per Recruiter
+                            conta_dimissioni = conta_dimissioni_per_recruiter(df_filtered_retention)
+                            conta_dimissioni['recruiter'] = conta_dimissioni['recruiter_id'].map(recruiters_dict)
+                            conta_dimissioni = conta_dimissioni.dropna(subset=['recruiter'])
+
+                            st.markdown("#### Numero di Inserimenti e Dimissioni per Recruiter")
+                            st.dataframe(conta_dimissioni[['recruiter', 'inserimenti', 'dimissioni']].rename(columns={
+                                'recruiter': 'Recruiter',
+                                'inserimenti': 'Inserimenti',
+                                'dimissioni': 'Dimissioni'
+                            }))
+
+                            # Grafico: Inserimenti vs Dimissioni per Recruiter
+                            fig_inserimenti = px.bar(
+                                conta_dimissioni,
+                                x='recruiter',
+                                y=['inserimenti', 'dimissioni'],
+                                barmode='group',
+                                labels={'recruiter': 'Recruiter', 'value': 'Numero'},
+                                title='Inserimenti vs Dimissioni per Recruiter',
+                                color_discrete_sequence=['#636EFA', '#EF553B']
+                            )
+                            st.plotly_chart(fig_inserimenti, use_container_width=True)
+
+                            # Recruiter con più venditori andati via
+                            top_recruiters = recruiter_piu_dimissioni(df_filtered_retention)
+                            if top_recruiters is not None and not top_recruiters.empty:
+                                top_recruiters['recruiter'] = top_recruiters['recruiter_id'].map(recruiters_dict)
+                                top_recruiters = top_recruiters.dropna(subset=['recruiter'])
+                                max_dimissioni = top_recruiters['dimissioni'].max()
+                                st.markdown("#### Recruiter con più Venditori Andati Via")
+                                st.dataframe(top_recruiters[['recruiter', 'dimissioni']].rename(columns={
+                                    'recruiter': 'Recruiter',
+                                    'dimissioni': 'Dimissioni Totali'
+                                }))
+                                
+                                # Grafico: Top Recruiter Dimissioni
+                                fig_top_rec = px.bar(
+                                    top_recruiters,
+                                    x='recruiter',
+                                    y='dimissioni',
+                                    labels={'recruiter': 'Recruiter', 'dimissioni': 'Dimissioni Totali'},
+                                    title='Recruiter con più Venditori Andati Via',
+                                    color='dimissioni',
+                                    color_continuous_scale='Reds'
+                                )
+                                st.plotly_chart(fig_top_rec, use_container_width=True)
+                            else:
+                                st.info("Nessun recruiter ha venditori andati via in questo intervallo.")
+
+            ################################
+            # TAB 6: Classifica
+            ################################
+            with tab6:
+                st.subheader("Classifica (Matplotlib)")
+
+                st.markdown("### Filtro per Anno")
+                anni_leader = sorted(df['effective_start_date'].dt.year.dropna().unique())
+                if len(anni_leader) == 0:
+                    st.warning("Nessun dato disponibile per il leaderboard.")
+                    st.stop()
+                # Converti gli anni in interi
+                anni_leader = [int(y) for y in anni_leader]
+                anno_leader = st.selectbox("Seleziona Anno", options=anni_leader, index=len(anni_leader)-1, key='leaderboard_anno')
+
+                # Filtra i dati per il leaderboard basato sull'anno selezionato
+                try:
+                    start_date_leader = datetime(anno_leader, 1, 1)
+                    end_date_leader = datetime(anno_leader, 12, 31)
+                except TypeError as e:
+                    st.error(f"Errore nella selezione di Anno per il leaderboard: {e}")
+                    st.stop()
+
+                df_leader_filtered = df[
+                    (df['effective_start_date'] >= pd.Timestamp(start_date_leader)) &
+                    (df['effective_start_date'] <= pd.Timestamp(end_date_leader))
+                ]
+
+                # Filtra solo i progetti completati e una tantum
+                df_leader_comp = df_leader_filtered[
+                    (df_leader_filtered['stato_progetto'] == 'Completato') &
+                    (df_leader_filtered['start_date_dt'].isna())  # Solo progetti una tantum
+                ].copy()
+
+                st.write(f"Anno in analisi: {anno_leader}")
+
+                leaderboard_df = calcola_leaderboard_mensile(df_leader_comp, start_date_leader, end_date_leader)
+                if leaderboard_df.empty:
+                    st.info("Nessun progetto completato una tantum in questo periodo.")
+                else:
+                    st.write("Classifica Annuale con punteggio e badge:")
+                    st.dataframe(leaderboard_df)
+
+                    fig_leader = px.bar(
+                        leaderboard_df,
+                        x='sales_recruiter',
+                        y='punteggio',
+                        color='badge',
+                        title='Leaderboard Annuale',
+                        color_discrete_map={
+                            "Gold": "gold",
+                            "Silver": "silver",
+                            "Bronze": "brown",
+                            "": "grey"  # Colore di default per badge vuoti
+                        }
+                    )
+                    st.plotly_chart(fig_leader, use_container_width=True)
+
+                    st.markdown("""
+                    **Formula Punteggio**  
+                    - +10 punti ogni progetto completato  
+                    - +bonus (300/500) da recensioni 4/5 stelle  
+                    - +max(0, 30 - tempo_medio) per invertire la velocità  
+                    """)
+                    st.markdown("""
+                    **Badge**  
+                    - Bronze = almeno 5 completati  
+                    - Silver = almeno 10  
+                    - Gold   = almeno 20  
+                    """)
+
+                ################################
+                # Grafici nella Classifica
+                ################################
+                st.subheader("Grafici della Classifica")
+
+                # **2) Recruiter più veloce (Tempo Medio)**
+                st.markdown("**2) Recruiter più veloce (Tempo Medio)**")
+                df_comp_leader = df_leader_comp.copy()
+                veloce = df_comp_leader.groupby('sales_recruiter')['tempo_totale'].mean().reset_index()
+                veloce['tempo_totale'] = veloce['tempo_totale'].fillna(0)
+                veloce = veloce.sort_values(by='tempo_totale', ascending=True)
+                if veloce.empty:
+                    st.info("Nessun progetto completato una tantum per calcolare la velocità.")
+                else:
+                    fig2, ax2 = plt.subplots(figsize=(8,6))
+                    ax2.bar(veloce['sales_recruiter'], veloce['tempo_totale'], color='#636EFA')  # Colore simile al grafico avvicinamento
+                    ax2.set_title("Tempo Medio (giorni) - Più basso = più veloce")
+                    ax2.set_xlabel("Recruiter")
+                    ax2.set_ylabel("Tempo Medio (giorni)")
+                    plt.xticks(rotation=45, ha='right')
+                    st.pyplot(fig2)
+
+                # **3) Recruiter con più Bonus ottenuti** (4 stelle=300, 5 stelle=500)
+                st.markdown("**3) Recruiter con più Bonus ottenuti** (4 stelle=300, 5 stelle=500)")
+                df_bonus = df_leader_comp.copy()
+                df_bonus['bonus'] = df_bonus['recensione_stelle'].apply(calcola_bonus)
+                bonus_df = df_bonus.groupby('sales_recruiter')['bonus'].sum().reset_index()
+                bonus_df = bonus_df.sort_values(by='bonus', ascending=False)
+                if bonus_df.empty:
+                    st.info("Nessun bonus calcolato.")
+                else:
+                    fig3, ax3 = plt.subplots(figsize=(8,6))
+                    ax3.bar(bonus_df['sales_recruiter'], bonus_df['bonus'], color='#EF553B')  # Colore simile al grafico avvicinamento
+                    ax3.set_title("Bonus Totale Ottenuto")
+                    ax3.set_xlabel("Recruiter")
+                    ax3.set_ylabel("Bonus (€)")
+                    plt.xticks(rotation=45, ha='right')
+                    st.pyplot(fig3)
+
+    #######################################
+    # 3. GESTISCI OPZIONI
+    #######################################
+    elif scelta == "Gestisci Opzioni":
+        st.write("Gestione settori, PM, recruiters e capacity in manage_options.py")
+        st.markdown("### Nota")
+        st.markdown("""
+        La gestione delle opzioni (settori, Project Managers, Recruiters e Capacità) è gestita nel file `manage_options.py`.
+        Assicurati di navigare a quella pagina per gestire le tue opzioni.
+        """)
